@@ -1,0 +1,18 @@
+=== cmdline ===
+rootfstype=ramfs init=/init console=ttyS0,115200 no_console_suspend earlyprintk=aml-uart,0xc81004c0 ramoops.pstore_en=1 ramoops.record_size=0x8000 ramoops.console_size=0x4000 use_cma_first=1 androidboot.selinux=permissive otg_device=0 hdr_policy=1 frac_rate_policy=0 logo=osd1,loaded,0x3d800000,576cvbs vout=576cvbs,enable hdmimode=720p50hz cvbsmode=576cvbs hdmitx= cvbsdrv=2 androidboot.firstboot=0 jtag=apee quiet androidboot.hardware=amlogic androidboot.boardid=2 androidboot.serialno=REDACTED-DEVICE-SERIAL androidboot.gdserialno=REDACTED-GD-SERIAL mac=02:aa:bb:cc:dd:01 androidboot.mac=02:aa:bb:cc:dd:01 androidboot.dtbo_idx=0 buildvariant=userdebug
+
+=== /proc/fb ===
+0 OSD FB
+1 OSD FB
+=== /sys/class/display ===
+axis
+bist
+display
+fr_policy
+mode
+vinfo
+=== /sys/class/amhdmitx0 ===
+=== /sys/class/graphics ===
+fb0
+fb1
+ls: /sys/class/amhdmitx0/: No such file or directory

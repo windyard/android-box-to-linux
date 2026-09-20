@@ -1,0 +1,17 @@
+===R5E-START===
+androidboot.serialno=${usid};fi;if
+androidboot.gdserialno=${usid2};fi;if
+androidboot.mac=${mac};fi;if
+androidboot.deviceid=${deviceid};fi;if
+androidboot.cmei=${cmei};fi;if
+androidboot.authkey=${authkey};fi;fi;
+selinux=permissive
+androidboot.firstboot=${firstboot}
+androidboot.hardware=amlogic
+androidboot.boardid=${boardid};run
+ls: /mnt/system/xbin/su: No such file or directory
+ls: /mnt/system/bin/su: No such file or directory
+mount: mounting /dev/block/system on /mnt/system failed: No such file or directory
+remount rc=0
+grep: /mnt/system/etc/prop.default: No such file or directory
+===R5E-DONE===

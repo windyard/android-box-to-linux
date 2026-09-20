@@ -1,0 +1,24 @@
+===== valid_mode =====
+0
+===== preferred_mode =====
+720p50hz
+===== disp_cap =====
+480i60hz
+576i50hz
+480p60hz
+576p50hz
+720p60hz
+1080i60hz
+1080p60hz*
+720p50hz
+1080i50hz
+1080p50hz
+2160p30hz
+2160p25hz
+2160p24hz
+smpte24hz
+smpte50hz
+smpte60hz
+2160p50hz
+2160p60hz
+===== hdmi_config_info =====

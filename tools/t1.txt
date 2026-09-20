@@ -1,0 +1,10 @@
+echo === TVBOX-T1-BEGIN ===
+setenv tvlog A1-in-script
+saveenv
+setenv upgrade_step 2
+saveenv
+if fatload usb 0 ${dtb_mem_addr} dtb.img; then setenv tvlog A2-dtb-ok; else setenv tvlog A2-dtb-miss; fi
+saveenv
+if fatload usb 0 ${loadaddr} tvboot.img; then setenv tvlog A3-boot-ok; bootm ${loadaddr}; setenv tvlog A4-bootm-ret; saveenv; else setenv tvlog A3-boot-miss; fi
+saveenv
+echo === TVBOX-T1-FALLTHROUGH ===

@@ -1,0 +1,22 @@
+# never publish credentials or captures
+*pass*
+*passphrase*
+*.pem
+!keys/*.pem
+!keys/*.pk8
+ssrf/key.pem
+ssrf/cert.pem
+ssrf/pem-all.crt
+*.pcap
+*.log
+*.err
+__pycache__/
+*.pyc
+# vendor firmware is not ours to redistribute
+fw/
+backup/
+parts/
+inis/
+kitchen/
+work/
+*.raw

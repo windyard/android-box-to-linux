@@ -1,0 +1,13 @@
+xres=1920 yres=1080 xv=1920 yv=3240 bpp=32 yoffset=0 red_off=16 green_off=8 blue_off=0
+smem_len=25165824 line_length=7680 visual=2 pattern=5
+done
+=== axis dump ===
+osd1,0,0,0,0
+
+=== dmesg ===
+[ 2290.618437@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[ 2290.618456@0] fb: osd_update_disp_axis_hw:dispdata(0,0,1918,1078)
+[ 2290.622908@0] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)
+[ 2290.639724@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[ 2290.639740@0] fb: osd_update_disp_axis_hw:dispdata(0,0,1918,1078)
+[ 2290.656230@0] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)

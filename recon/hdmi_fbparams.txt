@@ -1,0 +1,44 @@
+=== fb module params ===
+backup_enable                [1 ] -r--r--r--
+debug_rdma_status            [134224640 ] -rw-rw-r--
+disable_osd_rdma_reset       [0 ] -rw-rw-r--
+dump_reg_trigger             [0 ] -rw-rw-r--
+enable_vd_zorder             [1 ] -rw-rw-r--
+item_count                   [14 ] -rw-rw-r--
+line_threshold               [90 ] -rw-rw-r--
+lockless_register_fb         [N ] -r--------
+mali_afbc_backup             [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ] -r--r--r--
+osd_afbc_backup              [0,0,0,0,0,0,0,0,0,0,0 ] -r--r--r--
+osd_afbc_dec_enable          [0 ] -rw-rw-r--
+osd_auto_adjust_filter       [1 ] -rw-rw-r--
+osd_backup                   [3145729,0,0,70713344,0,0,0,4294967295,4294967295,4294967295,4294967295,4228356,125763584,70713344,125763584,0,0,0,0,0,0,0,0,0,0,0,0,42077313,0,0 ] -r--r--r--
+osd_h_filter_mode            [1 ] -rw-rw-r--
+osd_logo_index               [1 ] -rw-rw-r--
+osd_v_filter_mode            [1 ] -rw-rw-r--
+osd_vpp_misc                 [12336 ] -r--r--r--
+rdarb_reqen_slv              [65407 ] -rw-rw-r--
+rdma_debug                   [0 ] -rw-rw-r--
+rdma_hdr_delay               [0 ] -rw-rw-r--
+rdma_irq_count               [107400 ] -rw-rw-r--
+rdma_lost_count              [0 ] -rw-rw-r--
+rdma_recovery_count          [0 ] -rw-rw-r--
+reset_line                   [0 ] -rw-rw-r--
+supsend_delay                [0 ] -rw-rw-r--
+table_paddr                  [1057259520 ] -rw-rw-r--
+vsync_enter_line_max         [0 ] -rw-rw-r--
+vsync_exit_line_max          [0 ] -rw-rw-r--
+vsync_irq_count              [107405 ] -rw-rw-r--
+=== meson-fb DT ===
+compatible dev_name display_mode_default display_size_default interrupt-names interrupts logo_addr mem_size memory-region name scale_mode status 
+compatible                   00000000  61 6d 6c 6f 67 69 63 2c  20 6d 65 73 6f 6e 2d 67  |amlogic, meson-g| 00000000  61 6d 6c 6f 67 69 63 2c  20 6d 65 73 6f 6e 2d 67  |amlogic, meson-g| 
+dev_name                     00000000  6d 65 73 6f 6e 2d 66 62  00                       |meson-fb.| 00000000  6d 65 73 6f 6e 2d 66 62  00                       |meson-fb.| 
+display_mode_default         00000000  31 30 38 30 70 36 30 68  7a 00                    |1080p60hz.| 00000000  31 30 38 30 70 36 30 68  7a 00                    |1080p60hz.| 
+display_size_default         00000000  00 00 07 80 00 00 04 38  00 00 07 80 00 00 0c a8  |.......8........| 00000000  00 00 07 80 00 00 04 38  00 00 07 80 00 00 0c a8  |.......8........| 
+interrupt-names              00000000  76 69 75 2d 76 73 79 6e  63 00 72 64 6d 61 00     |viu-vsync.rdma.| 00000000  76 69 75 2d 76 73 79 6e  63 00 72 64 6d 61 00     |viu-vsync.rdma.| 
+interrupts                   00000000  00 00 00 00 00 00 00 03  00 00 00 01 00 00 00 00  |................| 00000000  00 00 00 00 00 00 00 03  00 00 00 01 00 00 00 00  |................| 
+logo_addr                    00000000  30 78 33 66 38 30 30 30  30 30 00                 |0x3f800000.| 00000000  30 78 33 66 38 30 30 30  30 30 00                 |0x3f800000.| 
+mem_size                     00000000  00 80 00 00 01 80 00 00  00 10 00 00              |............| 00000000  00 80 00 00 01 80 00 00  00 10 00 00              |............| 
+memory-region                00000000  00 00 00 3c                                       |...<| 00000000  00 00 00 3c                                       |...<| 
+name                         00000000  6d 65 73 6f 6e 2d 66 62  00                       |meson-fb.| 00000000  6d 65 73 6f 6e 2d 66 62  00                       |meson-fb.| 
+scale_mode                   00000000  00 00 00 01                                       |....| 00000000  00 00 00 01                                       |....| 
+status                       00000000  6f 6b 61 79 00                                    |okay.| 00000000  6f 6b 61 79 00                                    |okay.| 

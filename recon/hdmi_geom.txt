@@ -1,0 +1,17 @@
+=== fb0 geom before ===
+	geometry 1920 1080 1920 3240 32
+=== force geometry/virtual re-init ===
+rc=0
+	geometry 1920 1080 1920 1080 32
+=== order/usage probes ===
+[18228.105537@1] fb: osd_release now.index=0,open_count=1
+[18228.108124@0] fb: osd[0] canvas.idx =0x40
+[18228.108128@0] fb: osd[0] canvas.addr=0x2b400000
+[18228.108131@0] fb: osd[0] canvas.width=7680
+[18228.108133@0] fb: osd[0] canvas.height=1080
+[18228.108136@0] fb: osd[0] frame.width=1920
+[18228.108138@0] fb: osd[0] frame.height=1080
+[18228.108140@0] fb: osd[0] out_addr_id =0x0
+[18228.112098@0] fb: osd_release now.index=0,open_count=1
+[18228.115217@2] fb: osd_release now.index=0,open_count=1
+[18228.115901@0] fb: arg error

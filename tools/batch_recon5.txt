@@ -1,0 +1,7 @@
+echo ===R5F-START===
+/sbin/busybox sh -c '/sbin/busybox mkdir -p /mnt/system; /sbin/busybox mount -o ro /dev/block/system /mnt/system; /sbin/busybox echo "sys mount rc=$?"; /sbin/busybox ls -l /mnt/system/xbin 2>&1 | /sbin/busybox head -20; /sbin/busybox echo "--- su hits ---"; /sbin/busybox ls -l /mnt/system/bin/su /mnt/system/xbin/su 2>&1; /sbin/busybox cp /mnt/system/etc/prop.default /udisk/prop_default_orig.txt'
+/sbin/busybox sh -c '/sbin/busybox grep -n -e "su$" -e "nc$" -e "toybox" /dev/null; /sbin/busybox ls /mnt/system/bin | /sbin/busybox grep -x -e su -e nc -e toybox -e setprop -e start -e stop'
+/sbin/busybox umount /mnt/system
+/sbin/busybox sh -c '/sbin/busybox mount /dev/block/system /mnt/system; /sbin/busybox echo "rw mount rc=$?"; /sbin/busybox touch /mnt/system/etc/.wtest && /sbin/busybox ls -l /mnt/system/etc/.wtest && /sbin/busybox rm /mnt/system/etc/.wtest && /sbin/busybox echo WRITE-OK'
+/sbin/busybox sh -c '/sbin/busybox mkdir -p /mnt/rwd; /sbin/busybox mount -o ro /dev/block/data /mnt/rwd; /sbin/busybox ls -l /mnt/rwd/misc/adb /mnt/rwd/local/tmp 2>&1 | /sbin/busybox head -15'
+echo ===R5F-DONE===

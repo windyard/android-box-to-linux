@@ -1,0 +1,32 @@
+=== amhdmitx paths ===
+/sys/devices/platform/amhdmitx
+/sys/devices/virtual/amhdmitx
+/sys/devices/virtual/amhdmitx/amhdmitx0
+/sys/devices/virtual/workqueue/hdmitx_extcon_rxsense
+/sys/devices/virtual/workqueue/hdmitx_extcon_cedst
+/sys/class/amhdmitx
+/sys/class/amhdmitx/amhdmitx0
+/sys/firmware/devicetree/base/__symbols__/hdmitx_eecec
+/sys/firmware/devicetree/base/__symbols__/hdmitx_ddc
+/sys/firmware/devicetree/base/__symbols__/amhdmitx
+/sys/firmware/devicetree/base/__symbols__/hdmitx_aocec
+/sys/firmware/devicetree/base/__symbols__/hdmitx_hpd
+/sys/firmware/devicetree/base/amhdmitx
+/sys/firmware/devicetree/base/pinctrl@4b0/hdmitx_ddc
+/sys/firmware/devicetree/base/pinctrl@4b0/hdmitx_hpd
+/sys/firmware/devicetree/base/pinctrl@14/hdmitx_eecec
+/sys/firmware/devicetree/base/pinctrl@14/hdmitx_aocec
+/sys/bus/platform/devices/amhdmitx
+/sys/bus/platform/drivers/amhdmitx
+/sys/bus/platform/drivers/amhdmitx/amhdmitx
+/sys/bus/workqueue/devices/hdmitx_extcon_rxsense
+/sys/bus/workqueue/devices/hdmitx_extcon_cedst
+/sys/module/hdmitx20
+=== vout/hdmi class ===
+amaudio amaudio-dev amcanvas amhdmitx aml_ddr aml_store amvdac amvdec_csi amvecm android_usb audio_data_debug audiodsp backlight bdi block bluetooth bsg bt_addr codec_mm cvbs debug deinterlace devfreq display dmc_monitor dtb dvb ethernet extcon ge2d gpio graphics hdmirx hidraw hwmon i2c-adapter i2c-dev ieee80211 input ionvideo irblaster leds mdio_bus media-configs media-configs-dev mem misc mmc_host mtd net pci_bus picdec power_supply ppmgr ppp pps ptp pwm rc rdma_mgr regulator remote rfkill rtc scsi_device scsi_disk scsi_host slog_wcn smc-class sound spi_master spidev switch tee_info thermal tsync tsync_pcr tty tunnel_sync tvin ubi udc uio unifykeys v4lvideo vad vc vdin vfm video video4linux video_composer video_poll videosync vm vpu vtconsole watch_point watchdog wifi_power xt_idletimer zram-control 
+=== display/mode ===
+576cvbs
+=== display/vinfo ===
+ls: /sys/class/display/vinfo/: Not a directory
+=== display/display ===
+lrwxrwxrwx    1 root     root             0 Sep 19 00:23 /sys/class/display/display -> ../../devices/virtual/display/display

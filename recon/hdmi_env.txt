@@ -1,0 +1,23 @@
+8388608 bytes (8.0MB) copied, 0.227191 seconds, 35.2MB/s
+-rw-r--r--    1 root     root       8388608 Sep 19 05:17 /tmp/env.img
+bootargs=rootfstype=ramfs init=/init console=ttyS0,115200 no_console_suspend earlyprintk=aml-uart,0xc81004c0 ramoops.pstore_en=1 ramoops.record_size=0x8000 ramoops.console_size=0x4000 use_cma_first=1 androidboot.selinux=permissive otg_device=0 hdr_policy=1 frac_rate_policy=0 logo=osd1,loaded,0x3d800000,720p50hz vout=720p50hz,enable hdmimode=720p50hz cvbsmode=576cvbs hdmitx= cvbsdrv=2 androidboot.firstboot=0 jtag=apee quiet androidboot.hardware=amlogic androidboot.boardid=2 androidboot.serialno=REDACTED-DEVICE-SERIAL androidboot.gdserialno=REDACTED-GD-SERIAL mac=02:aa:bb:cc:dd:01 androidboot.mac=02:aa:bb:cc:dd:01
+bootcmd=run start_autoscript; run storeboot
+cmdline_keys=if keyman init 0x1234; then if keyman read usid ${loadaddr} str; then setenv bootargs ${bootargs} androidboot.serialno=${usid};fi;if keyman read usid2 ${loadaddr} str; then setenv bootargs ${bootargs} androidboot.gdserialno=${usid2};fi;if keyman read mac ${loadaddr} str; then setenv bootargs ${bootargs} mac=${mac} androidboot.mac=${mac};fi;if keyman read deviceid ${loadaddr} str; then setenv bootargs ${bootargs} androidboot.deviceid=${deviceid};fi;if keyman read cmei ${loadaddr} str; then setenv bootargs ${bootargs} androidboot.cmei=${cmei};fi;if keyman read authkey ${loadaddr} str; then setenv bootargs ${bootargs} androidboot.authkey=${authkey};fi;fi;
+cvbs_drv=2
+cvbsmode=576cvbs
+ext4LogoPath=/logo_files/bootup.bmp
+ext4LogoSz=3f4848
+ext4logoLoadCmd=ext4load mmc 1:${logoPart} ${logoLoadAddr} ${ext4LogoPath}
+hdmimode=720p50hz
+init_display=if rdext4pic vendor $loadaddr; then bmp pixel $logoLoadAddr; osd open; osd clear; bmp display $logoLoadAddr;else echo logo part bootup; imgread pic logo bootup $loadaddr; bmp pixel $bootup_offset; osd open; osd clear; bmp display $bootup_offset;fi;bmp scale;
+logoLoadAddr=1080000
+logoPart=f
+recovery_from_flash=setenv bootargs ${bootargs} aml_dt=${aml_dt} recovery_part={recovery_part} recovery_offset={recovery_offset};if imgread kernel ${recovery_part} ${loadaddr} ${recovery_offset}; then bootm ${loadaddr}; fi
+recovery_from_sdcard=if fatload mmc 0 ${loadaddr} aml_autoscript; then autoscr ${loadaddr}; fi;if fatload mmc 0 ${loadaddr} recovery.img; then if fatload mmc 0 ${dtb_mem_addr} dtb.img; then echo sd dtb.img loaded; fi;bootm ${loadaddr};fi;
+recovery_from_udisk=if fatload usb 0 ${loadaddr} aml_autoscript; then autoscr ${loadaddr}; fi;if fatload usb 0 ${loadaddr} recovery.img; then if fatload usb 0 ${dtb_mem_addr} dtb.img; then echo udisk dtb.img loaded; fi;bootm ${loadaddr};fi;
+start_autoscript=if mmcinfo; then run start_mmc_autoscript; fi; if usb start; then run start_usb_autoscript; fi; run start_emmc_autoscript
+start_emmc_autoscript=if fatload mmc 1 1020000 emmc_autoscript; then autoscr 1020000; fi;
+start_mmc_autoscript=if fatload mmc 0 1020000 s905_autoscript; then autoscr 1020000; fi;
+start_usb_autoscript=for usbdev in 0 1 2 3; do if fatload usb ${usbdev} 1020000 s905_autoscript; then autoscr 1020000; fi; done
+storeargs=setenv bootargs ${initargs} otg_device=${otg_device} hdr_policy=${hdr_policy} frac_rate_policy=${frac_rate_policy} logo=${display_layer},loaded,${fb_addr},${outputmode} vout=${outputmode},enable hdmimode=${hdmimode} cvbsmode=${cvbsmode} hdmitx=${cecconfig} cvbsdrv=${cvbs_drv} androidboot.firstboot=${firstboot} jtag=${jtag} ${kmsg}; setenv bootargs ${bootargs} androidboot.hardware=amlogic androidboot.boardid=${boardid};run cmdline_keys;
+storeboot=if imgread kernel boot ${loadaddr}; then bootm ${loadaddr}; fi;run update;

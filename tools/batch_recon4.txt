@@ -1,0 +1,7 @@
+echo ===R5E-START===
+/sbin/busybox grep -a -o -e "selinux=[a-z]*" -e "androidboot[^ ]*" /dev/block/env
+/sbin/busybox sh -c '/sbin/busybox ls -l /mnt/system/xbin/su /mnt/system/bin/su 2>&1; /sbin/busybox od -An -c -N16 /mnt/system/xbin/su 2>/dev/null'
+/sbin/busybox mount -o rw,remount /dev/block/system /mnt/system
+/sbin/busybox sh -c '/sbin/busybox echo "remount rc=$?"; /sbin/busybox mount | /sbin/busybox grep /mnt/system'
+/sbin/busybox grep -n -e "adb" -e "secure" /mnt/system/etc/prop.default
+echo ===R5E-DONE===

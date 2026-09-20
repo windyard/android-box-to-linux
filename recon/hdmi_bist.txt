@@ -1,0 +1,19 @@
+--- axis help output ---
+[ 2399.056453@2] vout: osd0=> x:0,y:0,w:1919,h:1079
+[ 2399.056453@2] osd1=> x:0,y:0,w:0,h:0
+[ 2399.056463@2] fb: current vmode=1080p60hz, cmd: 0x40000
+[ 2399.056469@2] fb: osd_update_disp_axis_hw:pan_data(0,0,1919,1079)
+[ 2399.056472@2] fb: osd_update_disp_axis_hw:dispdata(0,0,1918,1078)
+[ 2399.072950@0] fb: osd_update_disp_axis_hw:pan_data(0,0,0,0)
+[ 2399.072953@0] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)
+
+=== try display bist ===
+bist rc=0
+bist now: 1
+=== vout/vmode class hints ===
+[ 2399.096733@2] osd1=> x:0,y:0,w:0,h:0
+[ 2399.096743@2] fb: current vmode=1080p60hz, cmd: 0x40000
+[ 2399.096750@2] fb: osd_update_disp_axis_hw:pan_data(0,0,1919,1079)
+[ 2399.096753@2] fb: osd_update_disp_axis_hw:dispdata(0,0,1918,1078)
+[ 2399.106284@0] fb: osd_update_disp_axis_hw:pan_data(0,0,0,0)
+[ 2399.106287@0] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)

@@ -1,0 +1,16 @@
+=== logo knobs in DT ===
+/sys/firmware/devicetree/base/__symbols__/logo
+/sys/firmware/devicetree/base/partitions/logo/pname
+/sys/firmware/devicetree/base/partitions/logo/name
+/sys/firmware/devicetree/base/chosen/bootargs
+/sys/firmware/devicetree/base/mtd_nand/nand_partition/logo/name
+=== logo-ish sysfs ===
+/sys/class/block/logo
+/sys/firmware/devicetree/base/__symbols__/logo
+/sys/firmware/devicetree/base/__symbols__/logo_reserved
+/sys/firmware/devicetree/base/partitions/logo
+/sys/firmware/devicetree/base/meson-fb/logo_addr
+/sys/module/fb/parameters/osd_logo_index
+=== /chosen ===
+bootargs linux,initrd-end linux,initrd-start name 
+=== osd/vsync classes ===

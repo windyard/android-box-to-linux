@@ -1,0 +1,81 @@
+# HDMI / OSD session 7 recon (2026-09-20)
+
+Live bootargs read from `/proc/cmdline` (decisive):
+
+```
+logo=osd1,loaded,0x3d800000,576cvbs vout=576cvbs,enable hdmimode=720p50hz
+cvbsmode=576cvbs hdmitx= cvbsdrv=2 quiet ...
+```
+
+u-boot env (`/dev/env`, read-only) relevant strings:
+
+```
+storeargs=setenv bootargs ${initargs} ... logo=${display_layer},loaded,${fb_addr},${outputmode}
+          vout=${outputmode},enable hdmimode=${hdmimode} cvbsmode=${cvbsmode}
+          hdmitx=${cecconfig} cvbsdrv=${cvbs_drv} ...
+storeboot=if imgread kernel boot ${loadaddr}; then bootm ${loadaddr}; fi;run update
+bootcmd  =run start_autoscript; run storeboot
+start_autoscript=if mmcinfo; then run start_mmc_autoscript; fi;
+                 if usb start; then run start_usb_autoscript; fi;
+                 run start_emmc_autoscript
+start_usb_autoscript=for usbdev in 0 1 2 3; do if fatload usb ${usbdev} 1020000 s905_autoscript;
+                      then autoscr 1020000; fi; done
+```
+
+Note: `outputmode`, `display_layer`, `fb_addr`, `cecconfig` are NOT stored env keys —
+u-boot computes them in `board_late_init()` (which runs before bootcmd), so they exist
+as runtime env and a script can override them right before `storeboot`.
+
+## hdmitx side is healthy (this is NOT an HDMI-TX problem)
+
+`/sys/class/amhdmitx/amhdmitx0`: `hdmi_init=1`, `ready=1`, `hdmi_used=1`,
+`hpd_state=1`, `disp_mode=VIC:16`, `config` -> `cur_VIC: 16, colordepth 8bit`,
+`display/mode=1080p60hz`, `display/vinfo` = 1920x1080@60, video_clk 148500000.
+(`screen_real_*` still reports 1440x810 — leftover from the CVBS init.)
+
+## OSD side: osd0 is enabled but never scans out
+
+`/sys/class/graphics/fb0/`:
+```
+osd_status   = osd[0] enable: 1        (no addr/geometry line at all)
+osd_fps      = 0
+osd_hwc_enable = 0
+osd_dimm     = 0, 0x0
+window_axis  = 0 0 1919 1079
+scale        = [0x0]
+scale_axis   = 0 0 0 0
+stride       = 7680    virtual_size = 1920,2160
+```
+`/sys/class/display/fr_policy = -1`.
+
+New write-only knobs found this session (`osd_do_hwc`, `ver_update_pan`,
+`osd_single_step`, `osd_blend_bypass`, `osd_display_debug`, `state`) accept writes;
+`osd_single_step` rejects an empty write (EINVAL) and `osd_reg` **segfaults `cat`**
+— do not read `/sys/class/graphics/fb0/osd_reg`.
+
+None of these made osd0 appear; combined with earlier `axis`/`FBIOPAN`/BIST results the
+conclusion stands: because `vout=576cvbs,enable`, the VIU/OSD output path is bound to the
+CVBS DAC at init and osd0 never reaches the HDMI encoder. Cannot be fixed from
+running userspace.
+
+## Chosen fix (flash-free, reversible, no `saveenv`)
+
+USB FAT stick containing `s905_autoscript` (legacy uImage `type=script`, same wrapper as
+proven `stage/aml_autoscript`, magic 27051956, 64-byte header + CRC32 recomputed) whose
+payload is only:
+
+```
+setenv outputmode 1080p60hz
+setenv hdmimode 1080p60hz
+run storeboot
+```
+
+`start_usb_autoscript` runs it on **every** boot before `storeboot`, so leaving the stick
+in is itself the persistence mechanism. No writes to `/dev/env`, `/dev/boot`, `/dev/booto`
+or any eMMC partition. Recovery = remove the stick and power-cycle -> boots stock Alpine.
+
+Current on-box state: HDMI VIC16 locked, `fb1` (u-boot logo layer) blanked,
+`osd_logo_index=3`, screen black, SSH on eth0 .126, wlan0 .125 associated.
+No USB device present (`/sys/bus/usb/devices` shows root hubs only).
+The persistent 2.4 load average is normal for this BSP: kernel threads `videosync`,
+`RX_THREAD`, `SPRDW...` idle in D-state.

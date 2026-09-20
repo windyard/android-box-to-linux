@@ -1,0 +1,10 @@
+# /etc/fstab for the R1200C Linux-only layout (root is /dev/data via switch_root).
+# inittab sysinit runs `mount -a` to bring up these at boot.
+devtmpfs /dev  devtmpfs defaults 0 0
+proc     /proc proc   defaults 0 0
+sysfs    /sys  sysfs  defaults 0 0
+tmpfs    /run  tmpfs  nosuid,nodev 0 0
+# Reclaimed Android payload partitions, now ext4 Linux storage.
+UUID=0e47aa17-2e13-4908-b15d-51783eda2e91  /home  ext4 defaults,noatime 0 0   # p3 cache
+UUID=6c9d3441-a63e-4751-9b1f-9ca987f1aae6  /srv   ext4 defaults,noatime 0 0   # p18 system
+UUID=8e26721e-987f-4589-9bf5-4fbf1b18fef7  /opt   ext4 defaults,noatime 0 0   # p20 cus_config

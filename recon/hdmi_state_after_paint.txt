@@ -1,0 +1,25 @@
+mode=1080p60hz vic=16 hpd=1
+osd_fps=[0]
+osd_hold_line=[0x0]
+osd_do_hwc=[cat: can't open '/sys/class/graphics/fb0/osd_do_hwc': Permission denied]
+blank=[]
+enable=[cat: can't open '/sys/class/graphics/fb0/enable': No such file or directory]
+amvecm
+brightness
+brightness1
+brightness2
+cm2
+cm2_hue
+cm2_hue_by_hs
+cm2_luma
+cm2_sat
+cm_reg
+=== dmesg tail ===
+[ 1718.495015@2] fb: osd[0] canvas.idx =0x40
+[ 1718.495020@2] fb: osd[0] canvas.addr=0x2b400000
+[ 1718.495024@2] fb: osd[0] canvas.width=7680
+[ 1718.495027@2] fb: osd[0] canvas.height=3240
+[ 1718.495031@2] fb: osd[0] frame.width=1920
+[ 1718.495034@2] fb: osd[0] frame.height=1080
+[ 1718.495037@2] fb: osd[0] out_addr_id =0x0
+[ 1721.569048@0] fb: osd_release now.index=0,open_count=1

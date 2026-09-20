@@ -1,0 +1,5 @@
+=== vlock status ===
+echo vlock_mode val(0/1/2) > /sys/class/amvecm/vlock
+echo vlock_en val(0/1) > /sys/class/amvecm/vlock
+echo vlock_adapt val(0/1) > /sys/class/amvecm/vlock
+=== dump mixer regs ===

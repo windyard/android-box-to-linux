@@ -1,0 +1,9 @@
+fb1 restored: 	geometry 32 32 32 32 32
+=== cvbs class ===
+/sys/class/cvbs/:
+cvbs
+debug
+vdac_power_level
+wss
+dev                [252:0 ]
+uevent             [MAJOR=252 MINOR=0 DEVNAME=cvbs ]

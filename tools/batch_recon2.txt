@@ -1,0 +1,16 @@
+echo ===R5C-START===
+/sbin/busybox id
+/sbin/busybox cat /proc/cmdline
+/sbin/busybox sh -c '/sbin/busybox echo -n "selinux enforce="; /sbin/busybox cat /sys/fs/selinux/enforce; /sbin/busybox ls -d /sys/fs/selinux'
+/sbin/busybox mount
+/sbin/busybox ls -l /dev/block/system /dev/block/boot /dev/block/vbmeta /dev/block/param /dev/block/misc /dev/block/bootloader
+/sbin/busybox ls /dev/block/by-name
+/sbin/busybox od -An -c /mnt/rwd/property/persistent_properties
+/sbin/busybox sh -c '/sbin/busybox grep -i "adb\|verity\|avb\|selinux\|debuggable\|secure" /mnt/system/etc/prop.default > /udisk/recon_flags.txt; /sbin/busybox head -40 /mnt/system/build.prop >> /udisk/recon_flags.txt; /sbin/busybox ls /mnt/system/bin/su /system/xbin/su /sbin/su >> /udisk/recon_flags.txt 2>&1; /sbin/busybox ls /mnt/vendor/etc/fstab* /mnt/system/etc/fstab* >> /udisk/recon_flags.txt 2>&1; /sbin/busybox cat /mnt/vendor/etc/fstab* >> /udisk/recon_flags.txt 2>&1'
+/sbin/busybox grep -i "adb\|verity\|avb\|selinux" /mnt/system/etc/prop.default
+/sbin/busybox head -25 /mnt/system/build.prop
+/sbin/busybox ls /mnt/vendor/etc/fstab*
+/sbin/busybox cat /mnt/vendor/etc/fstab*
+/sbin/busybox sh -c '/sbin/busybox dd if=/dev/block/param bs=4096 count=256 of=/udisk/param_backup.bin; /sbin/busybox dd if=/dev/block/misc bs=4096 count=64 of=/udisk/misc_backup.bin'
+/sbin/busybox ls -l /udisk
+echo ===R5C-DONE===

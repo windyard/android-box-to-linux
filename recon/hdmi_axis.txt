@@ -1,0 +1,21 @@
+axis before: []
+write rc=0
+axis after osd0 syntax: [osd0,0,0,1919,1079]
+fb0 window: [0 0 1919 1079]
+--- try space syntax
+axis: [0 0 1919 1079]
+=== dmesg hints ===
+[ 2268.711603@2] vout: osd0=> x:0,y:0,w:0,h:0
+[ 2268.711603@2] osd1=> x:0,y:0,w:0,h:0
+[ 2268.711613@2] fb: current vmode=1080p60hz, cmd: 0x40000
+[ 2268.711621@2] fb: osd_update_disp_axis_hw:pan_data(0,0,1919,1079)
+[ 2268.711624@2] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)
+[ 2268.722902@0] fb: osd_update_disp_axis_hw:pan_data(0,0,0,0)
+[ 2268.722905@0] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)
+[ 2268.746158@1] vout: osd0=> x:0,y:0,w:1919,h:1079
+[ 2268.746158@1] osd1=> x:0,y:0,w:0,h:0
+[ 2268.746169@1] fb: current vmode=1080p60hz, cmd: 0x40000
+[ 2268.746177@1] fb: osd_update_disp_axis_hw:pan_data(0,0,1919,1079)
+[ 2268.746180@1] fb: osd_update_disp_axis_hw:dispdata(0,0,1918,1078)
+[ 2268.756244@0] fb: osd_update_disp_axis_hw:pan_data(0,0,0,0)
+[ 2268.756248@0] fb: osd_update_disp_axis_hw:dispdata(0,0,-1,-1)

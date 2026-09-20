@@ -1,0 +1,8 @@
+echo ===PATCH-START===
+/sbin/busybox cp /mnt/system/etc/prop.default /mnt/system/etc/prop.default.orig
+/sbin/busybox sh -c '/sbin/busybox printf "\nro.secure=0\nro.adb.secure=0\nservice.adb.root=1\nservice.adb.tcp.port=5555\npersist.sys.usb.config=adb\n" >> /mnt/system/etc/prop.default'
+/sbin/busybox sh -c '/sbin/busybox echo "--- tail ---"; /sbin/busybox tail -8 /mnt/system/etc/prop.default; /sbin/busybox echo "--- diff vs orig ---"; /sbin/busybox diff /mnt/system/etc/prop.default.orig /mnt/system/etc/prop.default'
+/sbin/busybox cp /mnt/system/etc/prop.default /udisk/prop_default_patched.txt
+/sbin/busybox sync
+/sbin/busybox ls -l /mnt/system/etc/prop.default /mnt/system/etc/prop.default.orig /udisk/prop_default_patched.txt
+echo ===PATCH-DONE===

@@ -1,0 +1,4 @@
+fb0 window: [0 0 1919 1079]  fb1 window: [0 0 0 0]
+fb0 scale: [scale:[0x0]]
+after paint fb0 window: [0 0 1919 1079] status: [osd[0] enable: 1]
+=== dmesg ===

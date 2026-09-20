@@ -1,0 +1,16 @@
+=== fb0 attrs ===
+afbc_err_cnt bits_per_pixel blank block_mode block_windows color_key console cursor debug dev device enable_3d enable_key enable_key_onhold flush_rate free_scale free_scale_axis free_scale_switch freescale_mode log_level log_module mode modes name order osd_afbc_format osd_afbcd osd_antiflicker osd_background_size osd_blend_bypass osd_clear osd_deband osd_dimm osd_display_debug osd_do_hwc osd_fps osd_hdr_mode osd_hold_line osd_hwc_enable osd_line_n_rdma osd_plane_alpha osd_reg osd_reverse osd_single_step osd_single_step_mode osd_status osd_urgent pan power reset_status rotate scale scale_axis scale_height scale_width state stride subsystem trace_enable trace_reg uevent ver_clone ver_update_pan virtual_size window_axis 
+=== fb1 attrs ===
+afbc_err_cnt bits_per_pixel blank block_mode block_windows color_key console cursor debug dev device enable_3d enable_key enable_key_onhold flush_rate free_scale free_scale_axis free_scale_switch freescale_mode log_level log_module mode modes name order osd_afbc_format osd_afbcd osd_antiflicker osd_background_size osd_blend_bypass osd_clear osd_deband osd_dimm osd_display_debug osd_do_hwc osd_fps osd_hdr_mode osd_hold_line osd_hwc_enable osd_line_n_rdma osd_plane_alpha osd_reg osd_reverse osd_single_step osd_single_step_mode osd_status osd_urgent pan power reset_status rotate scale scale_axis scale_height scale_width state stride subsystem trace_enable trace_reg uevent ver_clone ver_update_pan virtual_size window_axis 
+=== fb1 mode/vinfo ===
+U:32x32p-0
+head: /sys/class/graphics/fb1/vinfo: No such file or directory
+=== videosync ===
+dump_get_put_framecount
+dump_pts
+dump_queue_state
+dump_rect
+videosync
+=== vm ===
+=== amvecm/output ===
+cat: can't open '/sys/class/amvecm/output': No such file or directory

@@ -1,0 +1,29 @@
+sent: vout,hdmi
+sent: switch,hdmi
+sent: hdmi,enable
+sent: cvbs,0
+sent: output,hdmi
+sent: type,hdmi
+=== dmesg responses ===
+[18511.018695@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[18511.018695@0] osd1=> x:0,y:0,w:0,h:0
+[18511.018705@0] fb: current vmode=1080p60hz, cmd: 0x40000
+[18511.045527@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[18511.045527@0] osd1=> x:0,y:0,w:0,h:0
+[18511.045535@0] fb: current vmode=1080p60hz, cmd: 0x40000
+[18511.078842@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[18511.078842@0] osd1=> x:0,y:0,w:0,h:0
+[18511.078851@0] fb: current vmode=1080p60hz, cmd: 0x40000
+[18511.112170@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[18511.112170@0] osd1=> x:0,y:0,w:0,h:0
+[18511.112178@0] fb: current vmode=1080p60hz, cmd: 0x40000
+[18511.145536@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[18511.145536@0] osd1=> x:0,y:0,w:0,h:0
+[18511.145544@0] fb: current vmode=1080p60hz, cmd: 0x40000
+[18511.178836@0] vout: osd0=> x:0,y:0,w:1919,h:1079
+[18511.178836@0] osd1=> x:0,y:0,w:0,h:0
+[18511.178843@0] fb: current vmode=1080p60hz, cmd: 0x40000
+=== amvdac class ===
+amvdac debug info 
+cat: can't open '/sys/class/amvdac/vdac_power': No such file or directory
+cat: can't open '/sys/class/amvdac/cvbs_drv': No such file or directory

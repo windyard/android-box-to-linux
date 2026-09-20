@@ -1,0 +1,8 @@
+echo ===R5D-START===
+/sbin/busybox sh -c '/sbin/busybox echo "--- selinux hits in param ---"; /sbin/busybox grep -a -o -e "selinux=[a-z]*" -e "androidboot.hardware=[a-z]*" /dev/block/param | /sbin/busybox sort -u; /sbin/busybox echo "--- bootargs keys ---"; /sbin/busybox grep -a -o -e "bootargs[= ][^;]*" /dev/block/param | /sbin/busybox head -20'
+/sbin/busybox grep -a -o -e "selinux=[a-z]*" /dev/block/bootoled /dev/block/bootloader 2>/dev/null
+/sbin/busybox sh -c '/sbin/busybox mkdir -p /mnt/rwd; /sbin/busybox mount -o ro /dev/block/data /mnt/rwd 2>/dev/null; /sbin/busybox echo "data mount rc=$?"; /sbin/busybox ls -l /mnt/rwd/property /mnt/rwd/misc /mnt/rwd/adb 2>&1'
+/sbin/busybox od -An -c /mnt/rwd/property/persistent_properties
+/sbin/busybox sh -c '/sbin/busybox ls /mnt/system/xbin /mnt/system/bin 2>/dev/null | /sbin/busybox grep -i -e "^su$" -e suid -e magisk -e root; /sbin/busybox echo "--- debuggable apps ---"; /sbin/busybox grep -c debuggable /mnt/rwd/system/packages.xml 2>/dev/null; /sbin/busybox head -c 300 /mnt/rwd/misc 2>/dev/null'
+/sbin/busybox sh -c '/sbin/busybox echo "--- verity/avb in system libs ---"; /sbin/busybox ls -l /mnt/system/bin/debuggerd /mnt/system/bin/init 2>&1; /sbin/busybox grep -a -o -e "vbmeta" /mnt/system/etc/prop.default | /sbin/busybox head -3; /sbin/busybox cat /mnt/system/etc/system_fonts.xml >/dev/null; /sbin/busybox ls /mnt/vbmeta 2>/dev/null'
+echo ===R5D-DONE===

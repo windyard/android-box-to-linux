@@ -1,0 +1,17 @@
+=== vinfo now ===
+current vinfo:
+    name:                  1080p60hz
+    mode:                  0
+    width:                 1920
+    height:                1080
+    field_height:          1080
+    aspect_ratio_num:      16
+    aspect_ratio_den:      9
+    sync_duration_num:     60
+    sync_duration_den:     1
+=== fb0 sizes ===
+fbset: option 'i' not handled
+=== paint fb0 with noise ===
+0+0 records out
+0 bytes (0B) copied, 0.026718 seconds, 0B/s
+dd rc=0

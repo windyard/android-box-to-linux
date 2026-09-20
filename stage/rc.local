@@ -1,0 +1,26 @@
+#!/bin/sh
+# R1200C Alpine bring-up (Linux-only; root on eMMC /dev/data).
+ip link set lo up 2>/dev/null
+ifup lo 2>/dev/null
+ifup eth0 2>/dev/null || {
+    ip addr add 192.0.2.126/24 dev eth0 2>/dev/null
+    ip link set eth0 up 2>/dev/null
+    ip route add default via 192.0.2.1 2>/dev/null
+}
+# No RTC battery: the clock resets to 2020 each boot, which breaks TLS/apk cert
+# checks.  Set a valid floor (2026-09-19) immediately, then try to refine with
+# the router NTP (UDP/123 to the WAN may be blocked) in the background.
+date -u -s "@1789776000" 2>/dev/null
+( busybox ntpd -p 192.0.2.1 -q 2>/dev/null; busybox hwclock -w 2>/dev/null ) &
+# SSH: dropbear, key-auth only (no password logins), host keys auto-created if
+# absent so the daemon always comes up.  Replaces the old plaintext nc:2323 root
+# shell.  Authorized keys live in /root/.ssh/authorized_keys.
+mkdir -p /etc/dropbear /root/.ssh 2>/dev/null
+[ -f /etc/dropbear/dropbear_ed25519_host_key ] || dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1
+[ -f /etc/dropbear/dropbear_rsa_host_key ] || dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key >/dev/null 2>&1
+chmod 700 /root/.ssh 2>/dev/null; chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+/usr/sbin/dropbear -s -p 22
+( busybox chown -R 0:0 /root /home /etc /var /usr/local /opt 2>/dev/null
+  touch /root/.ownership-fixed ) &
+echo "r1200c alpine up: ssh on tcp/22 (key-auth)" > /dev/kmsg
+exit 0

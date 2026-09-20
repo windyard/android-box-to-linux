@@ -1,0 +1,5 @@
+echo ===R5G-START===
+/sbin/busybox sh -c '/sbin/busybox ls /mnt/system/etc/init*.rc /mnt/system/etc/hardware/*init* 2>/dev/null; /sbin/busybox grep -l -s "usb.config" /mnt/system/etc/*.rc; /sbin/busybox echo "--- hits ---"; /sbin/busybox grep -n -s -e "usb.config" -e "adbd" -e "tcp.port" /mnt/system/etc/*.rc | /sbin/busybox head -30'
+/sbin/busybox ls -l /mnt/system/bin/adbd /mnt/system/xbin/su
+/sbin/busybox sh -c '/sbin/busybox grep -c . /mnt/system/etc/prop.default; /sbin/busybox tail -4 /mnt/system/etc/prop.default'
+echo ===R5G-DONE===

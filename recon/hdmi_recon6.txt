@@ -1,0 +1,43 @@
+=== fb0 ===
+mode             
+modes            U:1920x1080p-0 
+vmode            cat: can't open '/sys/class/graphics/fb0/vmode': No such file or directory 
+vmode_info       cat: can't open '/sys/class/graphics/fb0/vmode_info': No such file or directory 
+virtual          cat: can't open '/sys/class/graphics/fb0/virtual': No such file or directory 
+windowsize       cat: can't open '/sys/class/graphics/fb0/windowsize': No such file or directory 
+xres             cat: can't open '/sys/class/graphics/fb0/xres': No such file or directory 
+yres             cat: can't open '/sys/class/graphics/fb0/yres': No such file or directory 
+bits_per_pixel   32 
+rotate           0 
+console          
+blank            
+enable_3d        3d_enable:[0x0] 
+=== fb0/vinfo ===
+head: /sys/class/graphics/fb0/vinfo: No such file or directory
+=== running X? ===
+=== dmesg hdmi/display last 25 ===
+[ 1521.784346@0] hdmitx: edid: get dtd0 vic: 19
+[ 1521.784350@0] hdmitx: edid: get dtd1 vic: 20
+[ 1521.784356@0] hdmitx: hdmitx: get PMT vic: 16
+[ 1521.784362@0] hdmitx: edid: find IEEEOUT
+[ 1521.784408@0] hdmitx: edid: blk0 raw data
+[ 1521.784446@0] hdmitx: edid: 
+[ 1521.784451@0] hdmitx: edid: blk1 raw data
+[ 1521.784487@0] hdmitx: edid: 
+[ 1521.784492@0] hdmitx: system: cann't get valid mode
+[ 1529.159464@0] hdmitx: system: irq 4 0
+[ 1529.159505@0] hdmitx: system: plugout
+[ 1529.159514@0] hdmitx: hdmitx_set_hdr10plus_pkt: null vsif
+[ 1529.159553@0] hdmitx: system: cann't get valid mode
+[ 1529.319425@0] hdmitx: system: irq 2 0
+[ 1529.842403@0] hdmitx: system: plugin
+[ 1529.976365@0] hdmitx: edid: EDID Parser:
+[ 1529.976407@0] hdmitx: edid: get dtd0 vic: 19
+[ 1529.976412@0] hdmitx: edid: get dtd1 vic: 20
+[ 1529.976417@0] hdmitx: hdmitx: get PMT vic: 16
+[ 1529.976422@0] hdmitx: edid: find IEEEOUT
+[ 1529.976469@0] hdmitx: edid: blk0 raw data
+[ 1529.976508@0] hdmitx: edid: 
+[ 1529.976512@0] hdmitx: edid: blk1 raw data
+[ 1529.976549@0] hdmitx: edid: 
+[ 1529.976553@0] hdmitx: system: cann't get valid mode

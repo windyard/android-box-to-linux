@@ -1,0 +1,25 @@
+=== video_composer ===
+/sys/class/video_composer/:
+close_black
+composer_use_444
+debug_axis_pip
+debug_crop_pip
+drop_cnt
+drop_cnt_pip
+force_composer
+force_composer_pip
+full_axis
+margin_time
+max_height
+max_width
+print_close
+print_flag
+receive_count
+receive_count_pip
+receive_wait
+rotate_height
+rotate_width
+/sys/class/video_composer/video_composer.0/dev [274:0 ]
+/sys/class/video_composer/video_composer.0/uevent [MAJOR=274 MINOR=0 DEVNAME=video_composer.0 ]
+/sys/class/video_composer/video_composer.1/dev [274:1 ]
+/sys/class/video_composer/video_composer.1/uevent [MAJOR=274 MINOR=1 DEVNAME=video_composer.1 ]

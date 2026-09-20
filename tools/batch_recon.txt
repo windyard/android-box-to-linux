@@ -1,0 +1,13 @@
+echo ===R5B-START===
+/sbin/busybox id
+/sbin/busybox cat /proc/cmdline
+/sbin/busybox cat /sys/fs/selinux/enforce
+/sbin/busybox sh -c '/sbin/busybox mount > /udisk/recon_mount.txt; /sbin/busybox cat /proc/partitions > /udisk/recon_partitions.txt; /sbin/busybox ls -l /dev/block > /udisk/recon_devblock.txt; /sbin/busybox ls -l /dev/block/by-name > /udisk/recon_byname.txt 2>&1'
+/sbin/busybox cat /proc/partitions
+/sbin/busybox ls /dev/block
+/sbin/busybox sh -c 'for p in system vendor product oem cus_config; do /sbin/busybox mkdir -p /mnt/$p; /sbin/busybox mount -o ro /dev/block/$p /mnt/$p 2>/dev/null && /sbin/busybox echo "MOUNTED $p"; done; /sbin/busybox cat /mnt/system/etc/prop.default > /udisk/recon_prop_default.txt 2>&1; /sbin/busybox cat /proc/mounts > /udisk/recon_proc_mounts.txt'
+/sbin/busybox cat /mnt/system/etc/prop.default
+/sbin/busybox sh -c '/sbin/busybox xxd /mnt/rwd/property/persistent_properties > /udisk/recon_persistent_props.txt 2>&1; /sbin/busybox ls -l /mnt/rwd/misc /mnt/rwd/droidota /mnt/rwd/adb >> /udisk/recon_persistent_props.txt 2>&1'
+/sbin/busybox xxd /mnt/rwd/property/persistent_properties
+/sbin/busybox sh -c '/sbin/busybox cat /proc/mtd > /udisk/recon_env.txt 2>&1; /sbin/busybox ls -l /dev/block/env >> /udisk/recon_env.txt 2>&1; /sbin/busybox dd if=/dev/block/env bs=4096 count=8 > /udisk/env_backup.bin 2>> /udisk/recon_env.txt'
+echo ===R5B-DONE===

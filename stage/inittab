@@ -1,0 +1,10 @@
+# R1200C Alpine busybox init (ramfs switch_root handoff).
+# Standard layout: run sysinit jobs in order, then respawn getty.
+# rc.local launches the nc root shell; getty is a serial-only fallback.
+::sysinit:/bin/busybox mount -a
+::sysinit:/bin/busybox mkdir -p /dev/pts /tmp/run /var/run
+::sysinit:/bin/busybox ln -sf /proc/self/mounts /etc/mtab
+null::sysinit:/bin/busybox hostname -F /etc/hostname
+::sysinit:/bin/busybox sh /etc/rc.local
+ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
+::shutdown:/bin/busybox umount -a -r

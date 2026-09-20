@@ -1,0 +1,29 @@
+=== amhdmitx0 files ===
+allm_cap allm_mode attr aud_cap aud_ch aud_mode avmute cea_cap cedst_count cedst_policy config contenttype_cap contenttype_mode dc_cap debug dev disp_cap disp_cap_3d disp_mode div40 dv_cap dv_cap2 edid edid_parsing fake_plug frac_rate_policy hdcp hdcp22_base hdcp22_type hdcp_byp hdcp_clkdis hdcp_ctrl hdcp_ksv_info hdcp_lstore hdcp_mode hdcp_pwr hdcp_repeater hdcp_rptxlstore hdcp_stickmode hdcp_stickstep hdcp_topo_info hdcp_ver hdmi hdmi_audio hdmi_cedst hdmi_config_info hdmi_hdr hdmi_hdr_status hdmi_hsty_config_info hdmi_init hdmi_power hdmi_repeater_tx hdmi_rx_info hdmi_rxsense hdmi_used hdr_cap hpd_state max_exceed phy power preferred_mode rawedid ready rhpd_state rxsense_policy sink_type sspll subsystem support_3d swap uevent valid_mode vesa_cap vic vid_mute 
+=== attr subdir ===
+/sys/class/amhdmitx/amhdmitx0/attr 
+=== display files ===
+--- /sys/class/display/axis
+
+
+--- /sys/class/display/bist
+0
+
+--- /sys/class/display/fr_policy
+-1
+
+--- /sys/class/display/mode
+576cvbs
+
+--- /sys/class/display/vinfo
+current vinfo:
+    name:                  576cvbs
+    mode:                  1
+    width:                 720
+    height:                576
+    field_height:          288
+    aspect_ratio_num:      4
+    aspect_ratio_den:      3
+    sync_duration_num:     50
+    sync_duration_den:     1
+    screen_

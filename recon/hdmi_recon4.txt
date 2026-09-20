@@ -1,0 +1,9 @@
+=== attr list ===
+/sys/class/amhdmitx/amhdmitx0/attr 
+--- hpd_state: 1
+--- rhpd_state: 1
+--- rxsense_policy: 0 
+--- sink_type: sink 
+--- phy: 
+--- div40: 0 
+--- cedst_policy: 0 

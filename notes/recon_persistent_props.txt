@@ -1,0 +1,112 @@
+===R5D-START===
+--- selinux hits in param ---
+--- bootargs keys ---
+data mount rc=0
+__bionic_open_tzdata: couldn't find any tzdata when looking for localtime!
+__bionic_open_tzdata: couldn't find any tzdata when looking for GMT!
+__bionic_open_tzdata: couldn't find any tzdata when looking for posixrules!
+/mnt/rwd/adb:
+total 0
+
+/mnt/rwd/misc:
+total 160
+drwxr-s---    2 system   shell         4096 Jan  1 00:00 adb
+drwxrwx---    2 system   radio         4096 Jan  1 00:00 apns
+drwx------    2 1041     1041          4096 Jan  1 00:00 audioserver
+drwxrws---    2 bluetoot bluetoot      4096 Sep 19  2026 bluedroid
+drwxrwx---    3 bluetoot bluetoot      4096 Jan  1 00:00 bluetooth
+drwx------    2 system   log           4096 Jan  1 00:00 bootstat
+drwxrwx--x    2 system   shell         4096 Jan  1 00:00 boottrace
+drwx------    2 1047     1047          4096 Jan  1 00:00 cameraserver
+drwxrwx---    2 system   radio         4096 Jan  1 00:00 carrierid
+drwxrwx---    2 dhcp     dhcp          4096 Jan  1 00:00 dhcp
+drwxrwx---    2 system   system        4096 Sep 19  2026 ethernet
+drwx------    2 system   system        4096 Sep 19  2026 gatekeeper
+drwxrwx---    2 root     root          4096 Jan  1 00:00 gcov
+drwxrwx---    2 1067     1067          4096 Jan  1 00:00 incidents
+drwxrwx--x    2 system   system        4096 Jan  1 00:00 keychain
+drwx------    3 keystore keystore      4096 Jan  1 00:00 keystore
+drwx------    2 logd     log           4096 Jan  1 00:00 logd
+drwx------    2 media    media         4096 Jan  1 00:00 media
+drwxr-x---    2 root     shell         4096 Jan  1 00:00 net
+drwxrwxr--    2 system   system        4096 Jan  1 00:00 network_watchlist
+drwxrwxr-x    2 root     root          4096 Jan  1 00:00 perfprofd
+drwxrwx--x    4 system   system        4096 Jan  1 00:00 profiles
+drwxrwx---    2 system   shell         4096 Jan  1 00:00 profman
+drwxrwx---    2 system   radio         4096 Jan  1 00:00 radio
+drwxrwx---    3 system   log           4096 Jan  1 00:00 recovery
+drwxrwx--x    2 shared_r shared_r      4096 Jan  1 00:00 shared_relro
+drwxrwx---    2 system   radio         4096 Jan  1 00:00 sms
+drwxrwx---    2 1066     system        4096 Jan  1 00:00 stats-data
+drwxrwx---    2 1066     system        4096 Jan  1 00:00 stats-service
+drwx------    2 system   system        4096 Jan  1 00:00 systemkeys
+drwxrwx--x    2 system   system        4096 Jan  1 00:00 textclassifier
+drwxrwx-wx    2 root     root          4096 Jan  1 00:00 trace
+drwx------    2 root     root          4096 Jan  1 00:00 update_engine
+drwxr-s---    2 root     log           4096 Jan  1 00:00 update_engine_log
+drwxrwx--x    3 root     root          4096 Jan  1 00:00 user
+drwx------    2 root     root          4096 Jan  1 00:00 vold
+drwxrwx---    2 system   vpn           4096 Jan  1 00:00 vpn
+drwxrwx---    4 wifi     wifi          4096 Sep 19  2026 wifi
+drwxrwxr-x    2 system   system        4096 Jan  1 00:00 wmtrace
+drwxrwxr-x    2 system   system        4096 Jan  1 00:00 zoneinfo
+
+/mnt/rwd/property:
+total 4
+-rw-------    1 root     root           699 Sep 19  2026 persistent_properties
+  \n   %  \n 027   p   e   r   s   i   s   t   .   v   e   n   d
+   o   r   .   b   t   m   o   d   u   l   e 022  \n   s   p   r
+   d   b   t   _   t   t   y  \n   5  \n 030   p   e   r   s   i
+   s   t   .   v   e   n   d   o   r   .   b   t   _   v   e   n
+   d   o   r 022 031   l   i   b   b   t   -   v   e   n   d   o
+   r   _   u   w   e   _   s   h   a   r   e   .   s   o  \n 036
+  \n 032   p   e   r   s   i   s   t   .   a   u   d   i   o   .
+   d   e   b   u   g   .   s   e   a   r   c   h 022  \0  \n 034
+  \n 030   p   e   r   s   i   s   t   .   a   u   d   i   o   .
+   d   e   b   u   g   .   r   e   a   d 022  \0  \n 033  \n 025
+   p   e   r   s   i   s   t   .   s   y   s   .   b   o   o   t
+   v   i   d   e   o 022 002   5   0  \n   (  \n 033   p   e   r
+   s   i   s   t   .   s   y   s   .   d   a   l   v   i   k   .
+   v   m   .   l   i   b   .   2 022  \t   l   i   b   a   r   t
+   .   s   o  \n   '  \n 032   p   e   r   s   i   s   t   .   s
+   y   s   .   w   e   b   v   i   e   w   .   v   m   s   i   z
+   e 022  \t   1   0   4   8   5   7   6   0   0  \n   D  \n 032
+   p   e   r   s   i   s   t   .   n   e   t   d   .   s   t   a
+   b   l   e   _   s   e   c   r   e   t 022   &   f   8   9   1
+   :   e   e   7   3   :   8   4   f   a   :   b   5   1   e   :
+   6   f   5   :   4   d   c   5   :   a   6   7   d   :   e   2
+   d   0  \n   2  \n 035   p   e   r   s   i   s   t   .   s   e
+   r   v   i   c   e   .   b   d   r   o   i   d   .   b   d   a
+   d   d   r 022 021   2   2   :   2   2   :   f   4   :   e   c
+   :   d   4   :   4   c  \n      \n 034   p   e   r   s   i   s
+   t   .   s   y   s   .   a   m   l   o   g   i   c   .   i   p
+   v   6   .   u   s   r 022  \0  \n      \n 034   p   e   r   s
+   i   s   t   .   s   y   s   .   a   m   l   o   g   i   c   .
+   i   p   v   6   .   p   w   d 022  \0  \n   &  \n   "   p   e
+   r   s   i   s   t   .   s   y   s   .   a   m   l   o   g   i
+   c   .   i   p   v   6   .   o   p   t   i   o   n   1   2   5
+ 022  \0  \n   &  \n 035   p   e   r   s   i   s   t   .   s   y
+   s   .   a   m   l   o   g   i   c   .   i   p   v   6   .   i
+   p   o   e 022 005   f   a   l   s   e  \n   E  \n 034   p   e
+   r   s   i   s   t   .   n   e   t   .   d   h   c   p   6   .
+   r   e   l   e   a   s   e   .   i   p 022   %   2   4   0   8
+   :   8   2   1   4   :   b   4   3   :   2   e   9   0   :   6
+   3   9   :   2   6   f   f   :   f   e   a   8   :   5   c   b
+   2  \n   3  \n 037   p   e   r   s   i   s   t   .   n   e   t
+   .   d   h   c   p   6   .   r   e   l   e   a   s   e   .   s
+   r   v   i   d 022 020   A   A   M   A   B   n   S   G   b   1
+   B   n   o   w   =   =  \n   #  \n 027   p   e   r   s   i   s
+   t   .   s   y   s   .   b   o   o   t   .   r   e   a   s   o
+   n 022  \b   r   e   c   o   v   e   r   y
+chroot
+su
+--- debuggable apps ---
+0
+--- verity/avb in system libs ---
+ls: /mnt/system/bin/init: No such file or directory
+__bionic_open_tzdata: couldn't find any tzdata when looking for localtime!
+__bionic_open_tzdata: couldn't find any tzdata when looking for GMT!
+__bionic_open_tzdata: couldn't find any tzdata when looking for posixrules!
+-rwxr-xr-x    1 root     shell        20260 Dec 31  2008 /mnt/system/bin/debuggerd
+cat: can't open '/mnt/system/etc/system_fonts.xml': No such file or directory
+===R5D-DONE===
