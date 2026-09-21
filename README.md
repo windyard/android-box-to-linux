@@ -580,6 +580,117 @@ Credential policy in force: `wpa_supplicant.conf` (mode 0600) stores **only the
 plaintext returns nothing in any file. An SSID whose passphrase was never
 supplied is deliberately **not** in the config — nothing is guessed.
 
+### 6.8 There is no network GUI here, and cannot be (2026-09-21)
+
+XFCE4 normally delegates WiFi to **NetworkManager**, and this box cannot run it:
+NM needs wpa_supplicant on D-Bus with its own control interface, while §6.5's
+`sdiohal` constraint means the driver can only be brought up once per boot and
+§6.2's chip needs an out-of-band ioctl to power on at all. An NM that decides to
+reload or re-probe the interface on its own schedule does not fail gracefully
+here — it ends the boot. So the honest answer to "where do I click to join a
+network" is *nowhere*, and the replacement is two small scripts.
+
+**`/usr/local/bin/wifi-add.sh`** — join / switch / forget, CLI only:
+
+| invocation | effect |
+|---|---|
+| `wifi-add.sh` | scan, pick by number or type a hidden SSID, prompt passphrase |
+| `wifi-add.sh "SSID"` | join that SSID, passphrase from stdin or typed |
+| `wifi-add.sh list` | scan and print, change nothing |
+| `wifi-add.sh forget "SSID"` | drop that network and reconnect |
+
+It **never reloads a module**: missing `wlan0` means §6.5's power cycle, and the
+script says so rather than trying something destructive. `eth0` keeps the
+lower-metric default route, so a wrong passphrase cannot cost the SSH lifeline.
+The passphrase still follows §6.7's policy exactly — `wpa_passphrase` on stdin,
+PMK-only to disk, `unset` afterwards, never an argv element, because argv leaks
+through `/proc`. Reaching for `wpa_passphrase`'s `psk=` line needs care: the
+whole `psk=<hex>` is **one** field, so `awk '$1=="psk="'` never matches.
+
+**`/usr/local/bin/wifi-status.sh`** — a genmon panel item, 5 s refresh. It
+distinguishes the two failures a user would otherwise conflate: *no interface*
+(power cycle required) versus *interface up, not connected* (wrong passphrase),
+and renders signal, address and channel in Pango markup:
+
+```
+<txt><span foreground="#8fe388">WiFi: MyWiFi24 ==== -35dBm 192.0.2.125 2442MHz</span></txt>
+```
+
+Wiring a plugin into a live panel needs the **session** D-Bus address, which a
+plain SSH shell does not have; scrape it, along with `DISPLAY`, from
+`/proc/$(pidof xfce4-session)/environ`. Note the bus filename changes every
+session, so a hardcoded `unix:path=/tmp/dbus-XXXX` is stale after any restart.
+Adding the plugin is then two xfconf writes plus inserting its id into
+`/panels/panel-N/plugin-ids`. That array is fiddly: `--force-array` with bare
+`-s` values fails with *"12 new values, but only 11 types"*, and a partially
+applied write leaves the panel showing the **old** list — so re-read it after
+writing, and don't trust the command's exit status.
+
+Both survived two cold boots unattended. `&mdash;` is not valid Pango; use
+literal characters.
+
+### 6.9 Clock and timezone on a box with no RTC battery
+
+There is **no `tzdata`** on this box and musl **ignores `/etc/TZ`** (that is a
+uClibc convention), so the only correct mechanism is a real TZif file at
+`/etc/localtime`:
+
+```
+cp <zoneinfo>/Asia/Shanghai /etc/localtime     # -> CST +0800
+```
+
+Verified three ways, because "the file exists" is not the same as "it works":
+`date` in a login shell, `date` inside the X session's own environment, and the
+panel clock. Setting a `TZ` environment variable would be *worse* than leaving
+it unset — an explicit `TZ` overrides `/etc/localtime` for that process, so a
+stray `TZ=UTC` inherited from somewhere pins it to UTC forever.
+
+The trap here is **glibc/GLib caching the timezone once per process**. The panel
+clock kept reading UTC after `/etc/localtime` was in place, because
+`xfce4-panel` started about 40 s *earlier* and froze the old value. Nothing was
+misconfigured; the process was just older than the file. Fix is a restart of the
+session (or a boot, now that the file is persistent), not a config change. A
+plugin's own properties are worth ruling out first — XFCE's clock has a
+`timezone` property that would have survived any amount of restarting.
+
+Boot-time NTP is §6.10.
+
+### 6.10 Time sync at boot: `time-up.sh`
+
+`rc.local` seeds a floor (`date -u -s @1789776000`) so TLS and apk work before
+the network does, then hands off to `/usr/local/bin/time-up.sh`, which retries
+**public** NTP (`ntp.aliyun.com` → `cn.pool.ntp.org` → `pool.ntp.org`) every 5 s
+for ~2 min then every 30 s to ~6 min, and writes the RTC only on a *verified*
+sync. Measured from a cold boot: **floor → correct in 21 s**, unattended,
+removing a ~2.6-day offset.
+
+Why verification is not optional — busybox `ntpd` v1.36.1 on this box:
+
+* `-q` steps the clock but **daemonises**, and **exits 0 against a peer that
+  never answered**. Its exit status carries no information at all, so "the boot
+  script succeeded" had no meaning;
+* `-w` (query-only, which implies `-n` so it stays foreground and is boundable
+  by `timeout`) prints `reply from IP: offset:+0.0016 strat:N` — the only real
+  signal available, and **it goes to stderr**.
+
+So each server is proven reachable with `-w` before it is trusted to step, and
+the step is confirmed by a second `-w` whose offset must be ≤ 2 s. That last
+point matters more than it looks: the *old* `rc.local` ran `ntpd -q` once and
+then **unconditionally** ran `hwclock -w`, which is how the floor itself got
+written into the hardware clock on every boot — the mechanism meant to remember
+the time was actively re-seeding the wrong one.
+
+Two measurement traps hit while building this, both worth remembering:
+
+* **busybox `ntpd`'s output is on stderr.** "Cleaning up" the query with
+  `2>/dev/null` made it return empty against a perfectly healthy peer — 3/3 vs
+  3/3 on the same server. The `2>&1` in that function is load-bearing.
+* **A negative test whose setup silently fails reads like a pass.** Trying to
+  block UDP/123 with `iptables` did nothing (`iptables: not found`), and the
+  "network unavailable" run then *succeeded* — which would have been recorded as
+  the failure path working. Use a peer that cannot possibly answer (RFC 5737
+  `192.0.2.x`, or a `.invalid` name) and assert on the outcome, not the setup.
+
 ---
 
 ## 7. The display fight
@@ -950,8 +1061,9 @@ synced between `tools/` and box `/root`, sha256-verified, rebuilt on box):
 Xorg 21.1.14 fbdev at depth 16, openbox — uniform gray desktop, verified by
 eye on the panel. Note the monitor is a **4K TV** (owner confirmed); irrelevant
 then, since the box emitted 1080p60 (VIC 16) and every pattern read correctly
-post-fix — **that did not survive the next cold boot**: the link cannot hold
-1080p60's clock and the box now runs **1080p30**, see §7.7.8.
+post-fix. (A later note claimed that "did not survive the next cold boot" and
+that the link could not hold 1080p60's clock — **that claim was wrong and is
+retracted in §7.7.8**; the box runs 1080p60 today.)
 One config gotcha: X **ServerAbortFatals with no core pointer** on
 this keyboard-less board — dummy `kbd` + `vmmouse` InputDevices in
 `90-amlfb.conf` (plus a ServerLayout referencing them) make it start.
@@ -1048,57 +1160,90 @@ the boot script:**
   survives replug. Both the udev start and the autosuspend kill are now tail
   steps of `display-up.sh`, so the whole input chain is unattended again.
 
-#### 7.7.8 The seventh gate: the TMDS **clock**, not the recipe (verified live 2026-09-21)
+#### 7.7.8 The "seventh gate" that was never a gate: a clock-rate claim, retracted
 
-The deferred cold power-cycle was performed and **the fixed chain worked**.
-`display-up.sh` ran clean at boot — dmesg: `vout: new mode 1080p60hz set ok`,
-`fb: osd_update_disp_axis_hw:dispdata(0,0,1919,1079)`, `fb: osd[1] enable: 0
-(display-up.sh)` — Xorg/xfwm4/xfdesktop/xfce4-panel/udevd all alive, both axes
-still programmed, bpp 16. **The panel still read "no signal".** All six gates
-were satisfied and there was still no picture, which is what forced this below
-everything examined so far.
+**Status: the theory in this section's original form is WRONG and is retracted
+here, with the methodological failure recorded so it does not repeat.**
 
-The cause sits one layer under §7.3/§7.7.1/§7.7.7: **the link cannot hold the
-148.5 MHz TMDS clock that 1080p60 (and 1080p50) require.** Measured, not inferred:
+The cold power-cycle was performed and the fixed chain ran clean at boot —
+`display-up.sh` logged normally, dmesg showed `vout: new mode 1080p60hz set
+ok`, `osd[1] enable: 0`, both axes programmed, bpp 16, Xorg/xfwm4/xfdesktop/
+panel/udevd all alive — **and the panel still read "no signal"**. Six gates
+satisfied, still dark. That is what pushed the investigation one layer down,
+and the original conclusion was:
 
-| mode set | `tmds_clk` (dmesg) | HPD drops while sampled |
-|---|---|---|
-| `1080p60hz` | 148500 | every **~8.16 s**, continuously |
-| `720p50hz` | 74250 | 0 / 25 s |
-| `1080p30hz` | 74250 | 0 / 12 s |
-| `1080p25hz` | 74250 | 0 / 12 s |
-| `1080i50hz` | 74250 | 0 / 12 s |
+> the link cannot hold the 148.5 MHz TMDS clock that 1080p60/1080p50 require;
+> stay at 74.25 MHz. (`1080p30hz`, "verified live")
 
-Why this hides so well: **every transmitter-side health check passes while the
-link is failing** — `hdmi_init=1`, `hpd_state=1` between the drops,
-`config → cur_VIC: 16`, `tmds_clk 148500`, `avmute 0`, `vid_mute 0`,
-`edid_parsing ok`. The sink loses lock on the *data*, pulls HPD low for ~1 s,
-and the driver treats that as a genuine unplug → re-runs EDID + mode-set →
-**and that is what destroys the picture**: the mode-set re-enables the fb1 logo
-plane and discards the FORCE-put/pan latch. So the §7.3 recipe is silently
-undone from under you, every 8 seconds, leaving nothing in `dmesg` but
-`plugout`/`plugin`.
+That was wrong. It was re-tested later the same day and **1080p60 is stable**,
+including across a cold boot.
 
-Diagnostics that actually discriminate (`/sys/class/amhdmitx/amhdmitx0/` — note
-the class is `amhdmitx`, so `cat /sys/class/amhdmitx0/hpd_state` is simply the
+**What actually refuted it** was not a better instrument but a contradiction
+that required no measurement: `720p50hz` and `1080p30hz` use the *identical*
+74.25 MHz clock, yet they were reported as behaving differently — one locked,
+one flapped. A variable that does not vary with the effect cannot be its cause.
+Once you accept two modes on the same clock disagree, "the clock decides" is
+already dead; the re-measurement was just confirmation.
+
+| mode set | `tmds_clk` | original claim | re-measured, 30–60 s windows |
+|---|---|---|---|
+| `1080p60hz` | 148500 | flaps every ~8.16 s, continuously | **0/30 and 0/60 — stable** |
+| `720p50hz` | 74250 | 0 / 25 s | 0/40 — stable |
+| `1080p30hz` | 74250 | 0 / 12 s | **3–4 drops per 30 s** in the first minutes after a boot-run recipe |
+| `1080p25hz` | 74250 | 0 / 12 s | 0/30 — stable |
+| `1080i50hz` | 74250 | 0 / 12 s | 0/30 — stable |
+| `720p60hz` | 148500 | (not tested) | 0/30 — stable |
+
+The pattern is **not** a clock band. The drops appeared in the first minutes
+after the recipe had run *at boot*, and vanished once the link had been torn
+down and re-established a few times (any manual re-run of `display-up.sh` does
+this). That is a boot-pass problem, and the mode was irrelevant to it.
+
+**The methodological error, which is the part worth keeping.** Those original
+"0 / 12 s" and "0 / 25 s" figures were windows *shorter than the interval
+between the events being counted*. A single HPD blip lasts about a second and
+the gaps run tens of seconds, so a 12-second clean sample is not evidence of a
+lock — it is evidence of nothing at all. Three of the five rows were
+indistinguishable from zero data, and one of them (`1080p60`, "flaps
+continuously") was sampled long enough to be real but interpreted as mode-
+caused rather than boot-caused. **Sample for longer than the period you are
+looking for, or don't call it a measurement.**
+
+`display-up.sh` now carries a 180-second boot-window HPD observer for exactly
+this reason, logging to `/var/log/hpd-boot.log`. Two cold boots since, both at
+1080p60, have produced the same result: **one drop at t≈4–5 s, then 175 s
+clean**. That single drop coincides with the recipe's own `display/mode` write
+— i.e. the normal replug from programming the display — and is expected. A link
+genuinely too marginal for its clock would keep dropping. So 1080p60 at boot is
+now supported by data instead of by a lucky 12-second window.
+
+Diagnostics that do discriminate (`/sys/class/amhdmitx/amhdmitx0/` — note the
+class is `amhdmitx`, so `cat /sys/class/amhdmitx0/hpd_state` is simply the
 wrong path on this build):
 
-* sample `hpd_state` once a second for ~20 s and **count the zeros**. A
-  metronomic interval (8.16 s here) is a negotiated retry; a bad contact is
-  irregular;
-* `preferred_mode` (this TV's EDID answers `720p50hz`), `sink_type`,
-  `edid_parsing`, `config` for `cur_VIC`, `dmesg | grep tmds_clk` for the clock;
-* **`fake_plug=1` looks like a cause and is not** — clearing it left the flap at
-  exactly the same rate, so read-back of that debug node is not a diagnosis;
-* absent on this BSP: `hpd_state_check`, `5V_state`; `phy`,
-  `hdmi_config_info` and `swap` read empty.
+* sample `hpd_state` once a second **for at least a few minutes** and count the
+  zeros; note *when* they fall relative to a mode write. A metronomic interval
+  is a negotiated retry; a bad contact is irregular; a single drop at
+  mode-set-time is the handshake, not a fault;
+* `config` → `cur_VIC` (16 = 1080p60, 19 = 720p50, 31 = 1080p50), and
+  `dmesg | grep tmds_clk` for the clock actually programmed;
+* **this sink's `preferred_mode` is `720p50hz`.** The raw EDID is genuine (read
+  it: `rawedid` returns ASCII hex, header `00ffffffffffff00`, manufacturer
+  `0x61a4` = "MI", monitor name **"Mi TV"**, with a CEA extension) — so a 4K-class
+  panel that *prefers* being fed 720p50. Worth knowing: "the TV wants 720p" is
+  the panel's own declaration, not a limitation you inferred, and it also
+  explains edge cropping at lower resolutions, where 3840/1280 is non-integer
+  and the TV zooms-to-fill;
+* **`fake_plug=1` looks like a cause and is not** — clearing it left behaviour
+  unchanged, so read-back of that debug node is not a diagnosis;
+* `hdmi_init=1`, `avmute 0`, `vid_mute 0`, `edid_parsing ok` all pass **while
+  the picture is black**, so none of them is evidence that the link is fine.
+  Absent on this BSP: `hpd_state_check`, `5V_state`; `phy`, `hdmi_config_info`
+  and `swap` read empty.
 
-Resolution: run at **`1080p30hz`** — full 1920×1080 progressive at 74.25 MHz,
-the highest-quality mode in the band this link locks. **This is a workaround,
-not a verdict about the box.** §7.7.7 read every colour pattern correctly on this
-same TV at 1080p60, so 148.5 MHz *has* worked here; something physical (cable,
-TV input, the 5V/HPD handshake) changed since. Re-test 1080p60 on a different
-cable or input before blaming the box's HDMI PHY.
+Resolution: **run at `1080p60hz`.** It is stable across cold boots, it is what
+the user asked for, and it crops least at the panel edges. The earlier advice to
+retreat to 74.25 MHz bought nothing and should not be followed.
 
 Two changes to `stage/display-up.sh` (deployed to `/usr/local/bin/`):
 
@@ -1116,13 +1261,14 @@ Two changes to `stage/display-up.sh` (deployed to `/usr/local/bin/`):
 
 Current state as of this writing:
 X + **XFCE4** (panel + xfdesktop icons + thunar + xfce4-terminal) live on fb0 at
-16 bpp **at 1080p30hz / 1920×1080**, confirmed by eye on the 4K TV ("looks
-perfect") with `hpd_low=0/25`. The cold power-cycle that §9 used to list as
-outstanding **has been done**: the three §7.7.7 input-chain fixes held
-(`HOME=/root`, udevd before Xorg, `autosuspend=-1` all read back correct), and
-the only new failure was the clock gate above. The box warm-rebooted and
-cold-booted through the persisted `rc.local` path; network and WiFi come up
-unattended.
+16 bpp **at 1080p60hz / 1920×1080**, confirmed by eye on the 4K TV ("steady",
+full-size). The cold power-cycle that §9 used to list as outstanding **has been
+done**, twice since, and the input-chain fixes held (`HOME=/root`, udevd before
+Xorg, `autosuspend=-1` all read back correct). Boot-window HPD is now measured
+rather than inferred: `/var/log/hpd-boot.log` samples `hpd_state` every second
+for 180 s from inside `display-up.sh`, and both cold boots gave **one drop at
+t≈4–5 s** (the recipe's own mode write) **then a clean window**. Network, WiFi,
+display and clock all come up unattended.
 
 ---
 
@@ -1171,14 +1317,17 @@ kill $(pidof xfce4-session) $(pidof Xorg) 2>/dev/null
                                               #    restore its own var over our
                                               #    fbset — tear it down FIRST
                                               #    (never pkill -f, §5.3)
-echo 1080p30hz > /sys/class/display/mode      # 1. SEVENTH GATE (§7.7.8): stay at
-                                              #    74.25 MHz. 1080p60hz/1080p50hz
-                                              #    need 148.5 MHz, the TV will not
-                                              #    lock, and its HPD retry every
-                                              #    ~8s re-enables the logo plane
-                                              #    and discards the latch below.
-                                              #    Check with: sample
+echo 1080p60hz > /sys/class/display/mode      # 1. mode.  §7.7.8's original claim
+                                              #    that the link cannot hold
+                                              #    148.5 MHz was WRONG: 1080p60
+                                              #    is HPD-stable across cold
+                                              #    boots (one drop at mode-write
+                                              #    time, then clean).  Verify a
+                                              #    flap by sampling
                                               #    amhdmitx/amhdmitx0/hpd_state
+                                              #    for MINUTES, not seconds —
+                                              #    short windows are what caused
+                                              #    that mistake.
 fbset -fb /dev/fb0 -g 1920 1080 1920 1080 16  # 2. RGB565: no alpha field
 echo 1 > /sys/class/graphics/fb1/blank        # 3. kill the logo plane. Re-do after
 echo 0 > /sys/class/graphics/fb0/ver_clone    #    ANY display/mode write.
@@ -1224,20 +1373,26 @@ payload was deliberately erased; no full system/vendor backup exists).
    `autosuspend=-1`). Session is **XFCE4** now (`dbus-launch startxfce4`,
    compositor off; the lite tint2/pcmanfm stack was installed first, verified,
    then replaced and `apk del`'d).
-   **Then the cold boot found a seventh gate, and it is the shipped
-   configuration** (§7.7.8): the panel went "no signal" with all six gates
-   satisfied, because the link cannot hold the 148.5 MHz TMDS clock 1080p60
-   needs. Running at **`1080p30hz`** — 1920×1080 progressive at 74.25 MHz — is
-   HPD-stable and visually confirmed. So: the earlier "one more cold power-cycle"
-   item is **done and passed** (the three input-chain fixes held), and HDMI is
-   resolved *at 30 Hz*. Two things follow, both deliberate:
-   * `/dev/env` still boots `outputmode=720p50hz` while `display-up.sh` writes
-     `1080p30hz` at runtime, so boot and runtime modes **disagree by design**.
-     Unlike §7.7.4 hypothesis 1 that is harmless here — the script programs fb
-     geometry and every axis *after* its own mode write, in one pass.
-   * **1080p60 is a workaround casualty, not a dead box**: it worked throughout
-     §7.7.7 on this same 4K TV, so re-test it on another cable/input before
-     suspecting the HDMI PHY.
+   **Then came a "seventh gate" — the TMDS clock — which turned out not to
+   exist** (§7.7.8). The panel went "no signal" with all six gates satisfied,
+   and the conclusion drawn was that the link cannot hold the 148.5 MHz clock
+   1080p60 needs, so the box was pinned to `1080p30hz`. That was wrong: the
+   supporting samples were 12 s and 25 s windows, shorter than the interval
+   between the events counted, and `720p50`/`1080p30` share one clock yet were
+   reported as behaving differently. Re-measured at 30–60 s and now across two
+   cold boots with a 180 s in-boot sampler: **1080p60 is stable** and is the
+   shipped mode. The earlier "one more cold power-cycle" item is **done and
+   passed**. Two things follow:
+   * `/dev/env` still boots `outputmode=720p50hz` — which is also this TV's
+     EDID `preferred_mode` — while `display-up.sh` writes `1080p60hz` at
+     runtime, so boot and runtime modes **disagree by design**. Unlike §7.7.4
+     hypothesis 1 that is harmless here: the script programs fb geometry and
+     every axis *after* its own mode write, in one pass.
+   * the real open question is *why* the boot pass flapped at all. It stopped
+     flapping once the link was re-established by hand, and has not reappeared
+     in the two boots since — so that is unreproduced, not explained. If
+     "no signal" ever returns after a cold boot, re-run `display-up.sh` once
+     and read `/var/log/hpd-boot.log` **before** changing the mode.
    Still open: a native logout dialog would need elogind + a D-Bus system bus
    (rejected on risk grounds, §7.7.7) — until then use the desktop
    **Reboot**/**ShutDown** icons.
@@ -1543,6 +1698,36 @@ root 执行我们的 `update-binary`**。
   `wpa_supplicant -B -Dnl80211 -iwlan0 -c… -P/run/wpa_supplicant.pid`。
   口令策略:配置里**只存 64 位十六进制 PMK**,口令通过 stdin 喂给 `wpa_passphrase`,
   过滤掉 `#psk=`,随即 `unset`,全仓库 grep 不到明文;没给口令的那个 SSID 干脆不写。
+* **这台机器没有、也不该有网络图形配置工具(2026-09-21)**:XFCE  normally 把 WiFi
+  交给 NetworkManager,而 NM 要自主重扫/重载接口,这和 §6.5"每次开机只有一次机会"
+  直接冲突——NM 自己高兴就重来一次,代价是这一次开机就废了。替代方案是两个脚本:
+  `/usr/local/bin/wifi-add.sh`(list / join / forget,永不 rmmod,eth0 路由优先级
+  不动)和 `/usr/local/bin/wifi-status.sh`(genmon 面板项,5 秒刷新,分清"没有
+  wlan0"=要断电重启 与 "有 wlan0 但没连上"=口令错)。往活动面板里塞插件需要**会话
+  D-Bus 地址**,普通 SSH 里没有,从 `/proc/$(pidof xfce4-session)/environ` 里捞
+  `DISPLAY` 和 `DBUS_SESSION_BUS_ADDRESS`(注意总线文件名每次会话都变,硬编码必失效);
+  写 `/panels/panel-N/plugin-ids` 数组时 `--force-array` 不加类型会报
+  "12 new values, but only 11 types",而且**写坏了面板不报错、继续显示旧列表**,
+  所以写完必须读回校验,别信退出码。两次冷启动均已自动生效。
+* **时区:本机没有 tzdata,而 musl 根本不读 `/etc/TZ`**(那是 uClibc 的规矩),
+  所以唯一正确的做法是把真正的 TZif 文件放到 `/etc/localtime`
+  (`Asia/Shanghai` → `CST +0800`)。三处分别验证:登录 shell、X 会话自己的环境、
+  面板时钟。**不要**为了保险再导一个 `TZ` 变量——显式 `TZ` 会覆盖 `/etc/localtime`,
+  一个残留的 `TZ=UTC` 能把进程永远钉在 UTC。真正的坑是 **GLib 每进程只缓存一次
+  时区**:文件写好后面板时钟仍然读 UTC,因为 `xfce4-panel` 比文件早生了 40 秒——
+  配置没错,是进程比文件老。重启会话即可(文件已持久,以后开机自然正确)。
+  顺手先排除插件自己的 `timezone` 属性,XFCE 时钟确实有这个配置项。
+* **开机对时 `time-up.sh`**:`rc.local` 先设一个 floor 时间保证 TLS/apk 可用,再交给
+  它对**公网** NTP(`ntp.aliyun.com` → `cn.pool.ntp.org` → `pool.ntp.org`)重试
+  (前 2 分钟每 5 秒、之后到 6 分钟每 30 秒),**只在验证通过后才写 RTC**。冷启动
+  实测 21 秒内自动纠回约 2.6 天。必须验证的原因是 busybox `ntpd` 的 `-q` 会 daemonize
+  且**对端不回也退出 0**,退出码毫无信息量;只有 `-w`(query-only,隐含 `-n` 所以可被
+  `timeout` 约束)会打印 `offset:…`,而且**它输出在 stderr**。旧 `rc.local` 的毛病正是
+  `ntpd -q` 失败后**无条件** `hwclock -w`,把 floor 本身写进了硬件时钟——用来记住
+  时间的机制一直在主动回填错的时间。另两个自坑:把查询"清理"成 `2>/dev/null` 会让它
+  面对健康对端返回空(同一台服务器 3/3 对 3/3);以及**做失败的负向测试**——想用
+  `iptables` 封 UDP/123 结果本机没这个命令,"断网测试"于是以成功告终,差点被记成
+  失败路径通过。断言要落在结果上,不是落在配置上。
 
 ## 7. 显示(HDMI)之战
 
@@ -1923,51 +2108,71 @@ ConsoleKit / seatd**,所以 XFCE 自带退出对话框里的重启/关机按钮�
   抖动立刻停止,重新插拔也不复发。udevd 拉起和 autosuspend 关闭现在都是
   `display-up.sh` 的收尾步骤,整条输入链路重新做到开机全自动。
 
-**第七道闸:TMDS 时钟,而不是配方(2026-09-21 实测)**
+**所谓"第七道闸":TMDS 时钟——这个结论是错的,现予撤回(2026-09-21 复测)**
 
-那次说要补的**冷拔电重启终于做了,而且修好的链路是通的**:`display-up.sh` 开机
-干净跑完(dmesg 里有 `vout: new mode 1080p60hz set ok`、
+那次说要补的**冷拔电重启终于做了,链路当时是通的**:`display-up.sh` 开机干净跑完
+(dmesg 里有 `vout: new mode 1080p60hz set ok`、
 `fb: osd_update_disp_axis_hw:dispdata(0,0,1919,1079)`、
 `fb: osd[1] enable: 0 (display-up.sh)`),Xorg/xfwm4/xfdesktop/xfce4-panel/udevd
-全在,两个 axis 也都还是编程好的,bpp 16。**可显示器仍然报"无信号"**——六道闸全部
-满足却没有画面,这迫使排查下沉到此前谁都没看的一层。
+全在,两个 axis 也都还是编程好的,bpp 16。**可显示器当时确实报"无信号"**——六道闸
+全部满足却没有画面,于是排查下沉到此前谁都没看的一层,并得出了下面这个结论:
 
-根因:**这条链路锁不住 1080p60(以及 1080p50)所需的 148.5 MHz TMDS 时钟。**
-实测数据,不是推测:
+> 链路锁不住 1080p60(以及 1080p50)所需的 148.5 MHz TMDS 时钟,所以退回
+> 74.25 MHz(定 `1080p30hz`,标注"已实测")。
 
-| 设置的 mode | `tmds_clk`(dmesg) | 采样期内 HPD 掉几次 |
-|---|---|---|
-| `1080p60hz` | 148500 | **每 ~8.16 秒一次**,持续 |
-| `720p50hz` | 74250 | 0 / 25 秒 |
-| `1080p30hz` | 74250 | 0 / 12 秒 |
-| `1080p25hz` | 74250 | 0 / 12 秒 |
-| `1080i50hz` | 74250 | 0 / 12 秒 |
+**这个结论错了。当天稍晚复测:1080p60 是稳的,并且已经跨冷启动跑了两次。**
 
-为什么这么难看出来:**链路已经在失败了,发送端的健康检查却全部通过**——
-`hdmi_init=1`、掉之前 `hpd_state=1`、`config → cur_VIC: 16`、`tmds_clk 148500`、
-`avmute 0`、`vid_mute 0`、`edid_parsing ok`。真相是接收端**锁不住数据**,把 HPD
-拉低约 1 秒;驱动把这当成一次货真价实的拔线,于是重跑 EDID + mode-set——
-**而画面就是在这一步被毁掉的**:mode 写入会重新使能 fb1 logo 平面、并丢弃
-FORCE-put/pan 的锁存。于是 §7.3 的配方每 8 秒被悄悄抹掉一次,`dmesg` 里除了
-`plugout`/`plugin` 什么都不留。
+真正推翻它的不是更好的仪器,而是一个不需要测量的自相矛盾:`720p50hz` 和
+`1080p30hz` 用的是**完全相同**的 74.25 MHz 时钟,却被记成"一个锁得住、一个抖"。
+一个不随效应变化的量,不可能是效应的原因——只要接受"同一时钟下两种 mode 表现不同"
+这件事,"时钟决定一切"就已经死了,后面的复测不过是确认而已。
 
-真正能区分的诊断手段(路径是 `/sys/class/amhdmitx/amhdmitx0/`——类名是
-`amhdmitx`,所以 `cat /sys/class/amhdmitx0/hpd_state` 在这个 build 上根本就是错路
-径):
+| 设置的 mode | `tmds_clk` | 原来的结论 | 复测(30–60 秒窗口) |
+|---|---|---|---|
+| `1080p60hz` | 148500 | 每 ~8.16 秒掉一次,持续 | **0/30 与 0/60——稳定** |
+| `720p50hz` | 74250 | 0 / 25 秒 | 0/40——稳定 |
+| `1080p30hz` | 74250 | 0 / 12 秒 | **开机那次配方跑完后的头几分钟里,每 30 秒掉 3–4 次** |
+| `1080p25hz` | 74250 | 0 / 12 秒 | 0/30——稳定 |
+| `1080i50hz` | 74250 | 0 / 12 秒 | 0/30——稳定 |
+| `720p60hz` | 148500 | (未测) | 0/30——稳定 |
 
-* 每秒采一次 `hpd_state`、采 ~20 秒,**数里面有几个 0**。间隔恒定(这里是 8.16 秒)
-  说明是协商重试;接触不良是不规则的;
-* `preferred_mode`(这台电视的 EDID 答的是 `720p50hz`)、`sink_type`、
-  `edid_parsing`、`config` 里的 `cur_VIC`,以及 `dmesg | grep tmds_clk` 看实际时钟;
-* **`fake_plug=1` 看着像元凶,其实不是**——清掉之后抖动速率分毫不差,所以这个调试
-  节点的读数不能当诊断结论;
-* 这个 BSP 上没有 `hpd_state_check`、`5V_state`;`phy`、`hdmi_config_info`、`swap`
-  读出来是空的。
+规律**根本不是时钟频段**:抖动只出现在配方*由开机自动跑完*之后的头几分钟;一旦手动
+把链路拆掉重建几次(手动重跑一次 `display-up.sh` 即可),抖动就消失。这是"开机那一遍"
+的问题,和 mode 无关。
 
-结论:**改用 `1080p30hz`**——1920×1080 逐行、74.25 MHz,是这条链路能锁住的频段里
-画质最高的一档。**这是权宜之计,不是给这台机器定罪**:§7.7.7 里同一台 4K 电视在
-1080p60 下每种颜色图案都读对过,说明 148.5 MHz 在这台机器上*曾经*是好的;之后再换
-一根线或换一个电视输入口复测 1080p60,再谈是否怀疑 HDMI PHY。
+**方法论上的错误,也是这一节最值得留下的部分。** 当初那些"0 / 12 秒""0 / 25 秒",
+采样窗口比所要等待事件之间的间隔还要短。一次 HPD 抖动持续约 1 秒,而两次抖动之间相隔
+几十秒,所以 12 秒的干净采样**根本不是锁定的证据,它什么证据都不是**。五条数据里有三条
+与"没有数据"无法区分;剩下那条(`1080p60` "持续抖")采样时长够了,但把它归因于 mode
+而不是归因于开机过程,归错了。**采样长度必须大于你要找的那个周期,否则别把它叫作实测。**
+
+`display-up.sh` 现在内置了一个 180 秒的开机窗口采样器,正是为了这个原因,结果写到
+`/var/log/hpd-boot.log`。此后两次冷启动、都是 1080p60,结果一致:**t≈4–5 秒掉一次,
+之后 175 秒干净**。那一次掉落正好落在配方自己写 `display/mode` 的时刻——也就是编程
+显示时本来就会有一次正常重插——是预期行为;真正太吃紧的链路会**一直**掉。所以
+1080p60 现在是有数据支撑的,而不是靠 12 秒的运气。
+
+仍然能区分问题的诊断手段(路径是 `/sys/class/amhdmitx/amhdmitx0/`——类名是
+`amhdmitx`,所以 `cat /sys/class/amhdmitx0/hpd_state` 在这个 build 上根本就是错路径):
+
+* 每秒采一次 `hpd_state`,**至少采几分钟**,数里面有几个 0,并记下它们**相对于 mode
+  写入的时刻**落在哪里。间隔恒定说明是协商重试;接触不良是不规则的;只在 mode-set
+  时掉一次是握手,不是故障;
+* `config` → `cur_VIC`(16=1080p60、19=720p50、31=1080p50),以及
+  `dmesg | grep tmds_clk` 看实际编进去的时钟;
+* **这台接收端的 `preferred_mode` 就是 `720p50hz`。** 原始 EDID 是真的(读
+  `rawedid`,它返回 ASCII hex;头 `00ffffffffffff00`,厂商 `0x61a4` = "MI",显示器名
+  **"Mi TV"**,且带 CEA 扩展块)——也就是说这是一台 4K 级面板,*自己声明*偏好被喂
+  720p50。值得记住:"电视想要 720p"是面板自己的宣告,不是你推断出来的限制;它同时也
+  解释了低分辨率下的四边裁切——3840/1280 不是整数倍,电视会放大填满;
+* **`fake_plug=1` 看着像元凶,其实不是**——清掉之后行为毫无变化,所以这个调试节点的
+  读数不能当诊断结论;
+* **画面全黑时 `hdmi_init=1`、`avmute 0`、`vid_mute 0`、`edid_parsing ok` 全都通过**,
+  所以它们没有一个是"链路正常"的证据。这个 BSP 上没有 `hpd_state_check`、
+  `5V_state`;`phy`、`hdmi_config_info`、`swap` 读出来是空的。
+
+结论:**就用 `1080p60hz`。** 它跨冷启动稳定,是使用者本来就要的档,四边裁切也最小。
+先前"退到 74.25 MHz"的建议没有任何收益,不要照做。
 
 `stage/display-up.sh`(已部署到 `/usr/local/bin/`)的两处改动:
 
@@ -1981,11 +2186,13 @@ FORCE-put/pan 的锁存。于是 §7.3 的配方每 8 秒被悄悄抹掉一次,`
    见 §5.3)必须排在**任何** fb / mode 写入之前;顺带也让脚本可以在 SSH 里安全重放、
    完全不必重启。
 
-当前状态:X + **XFCE4** 桌面(panel + xfdesktop 图标 + thunar + xfce4-terminal)以
-16 bpp 活在 fb0 上,**`1080p30hz` / 1920×1080**,由持久化脚本拉起;肉眼确认
-("looks perfect"),`hpd_low=0/25`。此前挂着的**再冷拔电一次已经做完并通过**——三个
-输入链修复(`HOME=/root`、Xorg 前起 eudev、`autosuspend=-1`)开机读数全部正确——唯一
-的新故障就是上面那道时钟闸。热重启与冷重启都全自动跑通,有线/无线照常起来。
+当前状态:X + **XFCE4** 桌面(panel + xfdesktop 图标 + thunar + xfce4-terminal,外加
+genmon 里的 WiFi 状态条)以 16 bpp 活在 fb0 上,**`1080p60hz` / 1920×1080**,由持久化
+脚本拉起;肉眼确认画面稳定、四边不裁。此前挂着的**再冷拔电一次已经做完并通过**(之后
+又做了两次),三个输入链修复(`HOME=/root`、Xorg 前起 eudev、`autosuspend=-1`)开机读数
+全部正确。开机窗口的 HPD 现在是**测出来的**而不是推断的:`display-up.sh` 内部有个 180
+秒采样器写 `/var/log/hpd-boot.log`,两次 1080p60 冷启动都是 **t≈4–5 秒掉一次(配方自己
+写 mode 的那一下)、之后 175 秒干净**。热重启与冷重启都全自动跑通,有线/无线/时钟照常起来。
 
 ## 8. 复现命令速查
 
@@ -2020,10 +2227,12 @@ ssh root@192.0.2.126                  # dropbear,仅密钥登录
 # 手动重做(顺序与脚本一致):
 # 第 0 步——先拆旧会话:活着的 Xorg 拥有 fb0,会用它自己的 var 覆盖我们的 fbset。
 #   kill $(pidof xfce4-session) $(pidof Xorg)      # 绝不要用 pkill -f(§5.3)
-# 第七道闸(§7.7.8)——mode 必须是 1080p30hz:1080p60hz/1080p50hz 要 148.5MHz,
-#   这台电视锁不住,每 ~8 秒掉一次 HPD,而每次重连都会重新打开 logo 层并丢掉锁存。
-#   echo 1080p30hz > /sys/class/display/mode       # 之后第 1 步要重做
-#   判断有没有锁住:每秒采一次 /sys/class/amhdmitx/amhdmitx0/hpd_state,数 0 的个数
+# §7.7.8 的"第七道闸"是错的(已撤回)——就用 1080p60hz:它跨冷启动稳定。
+#   曾经以为 148.5MHz 锁不住、要退回 74.25MHz,那是采样窗口(12/25 秒)比抖动
+#   间隔还短造成的假证据;而 720p50 与 1080p30 同钟却表现不同,本身就已否掉时钟说。
+#   echo 1080p60hz > /sys/class/display/mode       # 之后第 1 步要重做
+#   判断有没有锁住:每秒采一次 /sys/class/amhdmitx/amhdmitx0/hpd_state,**采满几分钟**
+#   再数 0 的个数;开机配方自己写 mode 时掉一次(约 t=4s)是正常重插,不是故障。
 echo 1 > /sys/class/graphics/fb1/blank             # 1. 关 logo 层。任何对
 echo 0 > /sys/class/graphics/fb0/ver_clone        #    display/mode 的写都会把它
 fbset -fb /dev/fb0 -g 1920 1080 1920 1080 16      #    重新打开,第 1 步要重做。
@@ -2063,16 +2272,19 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    修进开机链(`HOME=/root`、Xorg 前先起 eudev、`autosuspend=-1`)。默认 session
    现在是 **XFCE4**(`dbus-launch startxfce4`,合成器关;更早的 tint2/pcmanfm 轻量
    版验证过、随后被替换并 `apk del` 清掉)。USB 鼠标经 udev 热插拔已可用。
-   **然后冷启动又暴露了第七道闸,而且它才是现在的出厂配置**(§7.7.8):六道闸全满足
-   却仍然"无信号",因为链路锁不住 1080p60 要的 148.5 MHz TMDS 时钟;改成
-   **`1080p30hz`**(1920×1080 逐行、74.25 MHz)后 HPD 稳定、肉眼确认完美。于是:
-   挂着的"再一次冷拔电确认"**已经完成且通过**(三个输入链修复读数全部正确),
-   HDMI 是**在 30Hz 下**算 resolved。两点由此而来的副作用都是有意为之:
-   * `/dev/env` 仍按 `outputmode=720p50hz` 开机,而 `display-up.sh` 运行时写
-     `1080p30hz`,**开机与运行时模式故意不一致**。与 §7.7.4 假设 1 不同,这里无害:
-     脚本在*自己的* mode 写入之后,一次性把帧缓冲几何和所有 axis 全编程完。
-   * **1080p60 是被绕过去的、不是被判死刑的**:§7.7.7 在同一台 4K 电视上以
-     1080p60 读过所有图案,所以怀疑 HDMI PHY 之前,先换线/换输入口复测 1080p60。
+   **随后冷启动又"暴露"了第七道闸——TMDS 时钟,但它其实不存在**(§7.7.8):当时六道闸
+   全满足却"无信号",结论是链路锁不住 148.5 MHz,于是钉在 `1080p30hz`。**这个结论当天
+   就被推翻并撤回**:支撑它的采样只有 12/25 秒,比抖动间隔还短;而 `720p50` 和
+   `1080p30` 同一个时钟却被记成表现不同。复测(30–60 秒 + 两次带 180 秒开机采样器的
+   冷启动)证明 **1080p60 是稳的**,现在出厂配置就是 1080p60hz。挂着的"再一次冷拔电
+   确认"**已完成且通过**。两点随之而来:
+   * `/dev/env` 仍按 `outputmode=720p50hz` 开机(这恰好也是这台电视 EDID 的
+     `preferred_mode`),而 `display-up.sh` 运行时写 `1080p60hz`,**开机与运行时模式
+     故意不一致**。与 §7.7.4 假设 1 不同,这里无害:脚本在*自己的* mode 写入之后,
+     一次性把帧缓冲几何和所有 axis 全编程完。
+   * **真正没解释的是"开机那一遍为什么会抖"**。它在手动重建链路几次后消失,此后两次
+     冷启动也没复发——所以是**未复现**,不是已解决。若哪天冷启动后又"无信号",先重跑
+     一次 `display-up.sh` 并读 `/var/log/hpd-boot.log`,**再**考虑换 mode。
    仍未做:让退出对话框的关机/重启按钮变活需要 **elogind + dbus 系统总线**(§7.7.7
    因风险原因否决);在那之前用桌面上的 **Reboot** / **ShutDown** 图标。
 2. **WiFi 开机自启已验证通过**:真实断电重启之后 `/var/log/wifi-up.log` 以
