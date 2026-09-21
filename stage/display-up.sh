@@ -9,16 +9,30 @@
 #   - the VIU latches the canvas only on FBIOPUT(FORCE)+FBIOPAN: fbfill does
 #     that as a side effect; osd_do_hwc completes hardware composition.
 #
-# Output mode is 1080p30hz, NOT 1080p60hz: the link fails on TMDS *clock rate*,
-# not on resolution.  1080p60 and 1080p50 both need 148.5 MHz, which this
-# cable/TV combination cannot lock - the sink drops HPD every ~8s and each
-# replug re-runs EDID + mode-set, which re-enables the logo plane and discards
-# the latched canvas (panel reads "no signal" while hdmi_init/cur_VIC look
-# healthy).  Anything at 74.25 MHz locks solid: measured 0 HPD drops/12s at
-# 1080p30, 1080p25 and 1080i50.  1080p30 is picked as the highest-quality of
-# those (full 1920x1080 progressive, 30Hz refresh).  Go back to 1080p60hz only
-# after the cable/input is confirmed good at 148.5 MHz.
-MODE=1080p30hz
+# Output mode 1080p60hz (VIC 16, 148.5 MHz).
+#
+# IMPORTANT CORRECTION (2026-09-21).  Every earlier note in this file and in
+# README 7.7.8 claimed the sink drops HPD at 148.5 MHz and that only 74.25 MHz
+# modes lock, so 1080p30 was pinned as the "highest safe" mode.  That was
+# wrong, and it was wrong for two separate reasons:
+#   1. The measurements behind it were 12s and 25s windows.  One HPD blip lasts
+#      about a second and the gaps between them run tens of seconds, so a short
+#      window is not evidence of a lock - it is evidence of nothing.
+#   2. 720p50 and 1080p30 share the SAME 74.25 MHz clock, yet one sampled clean
+#      and the other flapped.  A variable that does not vary with the effect
+#      cannot be the cause.
+# Re-measured today, 30-60s per mode, after the link had been re-established a
+# few times: 1080p60 0/30 and 0/60, 1080p25 0/30, 1080i50 0/30, 720p60 0/30,
+# 720p50 0/40.  Every mode stable, including the one previously declared
+# unusable.  The only flapping seen was in the first minutes after a boot-run
+# recipe, independent of mode - i.e. a boot-pass problem, not a clock limit.
+# The fix below is therefore unproven and deliberately conservative: if a cold
+# boot reintroduces flapping, re-run this script once and re-measure rather
+# than falling back to 74.25 MHz, which buys nothing.
+# The sink is a Xiaomi "Mi TV" (real EDID, CEA extension, 4K-class) whose
+# declared preferred timing is 720p50hz; feeding it 1080p60 is outside that
+# preference and works, and 1080p60 also crops less at the panel edges.
+MODE=1080p60hz
 W=1920
 H=1080
 X1=$((W - 1))
@@ -27,6 +41,21 @@ Y1=$((H - 1))
 LOG=/var/log/display-up.log
 exec >>"$LOG" 2>&1
 echo "=== $(date) display-up start ($MODE ${W}x${H})"
+
+# Boot-window HPD observer (added 2026-09-21).  Every claim about which modes
+# lock has been made from samples taken after the fact, which is what produced
+# the wrong 148.5 MHz conclusion corrected above.  This records the link from
+# the moment the recipe starts through ~3min, so a cold boot is judged on data
+# rather than on a short lucky window.  Costs one shell + one sleep per boot.
+( hpdl=/var/log/hpd-boot.log
+  echo "=== $(date -u +%FT%TZ) uptime=$(cut -d. -f1 /proc/uptime)s" >>"$hpdl"
+  z=0; n=0
+  while [ "$n" -lt 180 ]; do
+      v=$(cat /sys/class/amhdmitx/amhdmitx0/hpd_state 2>/dev/null)
+      [ "$v" = 0 ] && { z=$((z + 1)); printf 'DROP at %ss\n' "$(cut -d. -f1 /proc/uptime)" >>"$hpdl"; }
+      n=$((n + 1)); sleep 1
+  done
+  echo "=== window 180s drops=$z" >>"$hpdl" ) &
 
 # Take the previous session down FIRST. A live Xorg owns fb0 and restores its
 # own var (1920x1080) over our fbset, which leaves the framebuffer and the OSD
@@ -55,11 +84,16 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc
 #  - usbcore autosuspend defaults to 2s here and the xhci port DROPS the
 #    suspended mouse off the bus (disconnect/re-enumerate every ~2s). -1 off.
 echo -1 > /sys/module/usbcore/parameters/autosuspend
+UDEVD_PID=""
 if ! pidof udevd >/dev/null; then
     /sbin/udevd --daemon
+    UDEVD_PID=$!
     sleep 1
     udevadm trigger >/dev/null 2>&1
 fi
+# No pidof here: eudev workers are forked from the daemon and share its comm
+# *and* its /proc/PID/exe, so both 'pidof udevd' and 'pidof /sbin/udevd' print
+# every worker (17 PIDs observed).  The $! from --daemon is the real daemon.
 
 /usr/bin/Xorg :0 vt7 >>/var/log/Xorg.start.log 2>&1 &
 sleep 5
@@ -75,4 +109,4 @@ sleep 3
 # (verified live, §7.7.7). The cursor is a hardware plane, always visible.
 /root/fblatch
 echo 1 > /sys/class/graphics/fb0/osd_do_hwc
-echo "=== display-up done: Xorg=$(pidof Xorg) xfce4-session=$(pidof xfce4-session) udevd=$(pidof udevd) autosusp=$(cat /sys/module/usbcore/parameters/autosuspend)"
+echo "=== display-up done: Xorg=$(pidof Xorg) xfce4-session=$(pidof xfce4-session) udevd=${UDEVD_PID:-pre-existing} autosusp=$(cat /sys/module/usbcore/parameters/autosuspend)"
