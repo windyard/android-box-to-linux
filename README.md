@@ -1356,12 +1356,15 @@ caused rather than boot-caused. **Sample for longer than the period you are
 looking for, or don't call it a measurement.**
 
 `display-up.sh` now carries a 180-second boot-window HPD observer for exactly
-this reason, logging to `/var/log/hpd-boot.log`. Two cold boots since, both at
-1080p60, have produced the same result: **one drop at t≈4–5 s, then 175 s
-clean**. That single drop coincides with the recipe's own `display/mode` write
-— i.e. the normal replug from programming the display — and is expected. A link
-genuinely too marginal for its clock would keep dropping. So 1080p60 at boot is
-now supported by data instead of by a lucky 12-second window.
+this reason, logging to `/var/log/hpd-boot.log`. **Five boots are on record, all
+at 1080p60: three produced a single drop at t≈4–5 s and two produced none — and
+no boot has ever dropped after 5 s**, so 900 samples contain nothing in their
+last 175 s. The drop is *consistent with* the recipe's own `display/mode` write
+and no more than that: the same write ran twice without moving the link, which is
+what the earlier "it is expected, because programming a display replugs it"
+sentence quietly assumed. The load-bearing half is the timing — whatever the boot
+pass does to the link, it does inside five seconds and then holds, which is the
+claim the original 12-second samples could not support either way.
 
 Diagnostics that do discriminate (`/sys/class/amhdmitx/amhdmitx0/` — note the
 class is `amhdmitx`, so `cat /sys/class/amhdmitx0/hpd_state` is simply the
