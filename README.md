@@ -472,9 +472,12 @@ no job, which is the only reason it looked unavailable:
 ```
 
 busybox `mount -a` accepts `bind`, and `inittab` runs it in `::sysinit:` before
-`rc.local`, so this is boot-persistent without adding a service. Verified live in
-`/proc/mounts` (`/dev/cus_config /var/cache/apk ext4`), and `apk update` still
-works through it.
+`rc.local`, so this is boot-persistent without adding a service. **Confirmed at
+boot, not just by hand:** after the reboot that followed, both binds are present
+in `/proc/mounts` (`/dev/cus_config /var/cache/apk`, `/dev/cache /var/log`), root
+holds 510 M of 3.3 G, and the `(deleted)` log handles Xorg had been pinning to
+`/` were gone — which is the only way to prove the `mv`-under-an-open-fd problem
+self-heals rather than merely should.
 
 Two traps met on the way:
 
@@ -1367,9 +1370,14 @@ full-size). The cold power-cycle that §9 used to list as outstanding **has been
 done**, twice since, and the input-chain fixes held (`HOME=/root`, udevd before
 Xorg, `autosuspend=-1` all read back correct). Boot-window HPD is now measured
 rather than inferred: `/var/log/hpd-boot.log` samples `hpd_state` every second
-for 180 s from inside `display-up.sh`, and both cold boots gave **one drop at
-t≈4–5 s** (the recipe's own mode write) **then a clean window**. Network, WiFi,
-display and clock all come up unattended.
+for 180 s from inside `display-up.sh`. **Five boots are on record: three gave a
+single drop at t≈4–5 s, two gave `drops=0`, and no boot has ever dropped after
+5 s** — 900 samples with nothing in the last 175 s of every window. The drop is
+therefore *consistent with* the recipe's own mode write rather than proven by it,
+since two boots ran the same write and stayed clean. The load-bearing sentence is
+the second half: whatever the box does at boot, it does inside five seconds and
+then holds 1080p60 for the rest of the window. Network, WiFi, display and clock
+all come up unattended.
 
 ---
 
@@ -2292,10 +2300,11 @@ ConsoleKit / seatd**,所以 XFCE 自带退出对话框里的重启/关机按钮�
 而不是归因于开机过程,归错了。**采样长度必须大于你要找的那个周期,否则别把它叫作实测。**
 
 `display-up.sh` 现在内置了一个 180 秒的开机窗口采样器,正是为了这个原因,结果写到
-`/var/log/hpd-boot.log`。此后两次冷启动、都是 1080p60,结果一致:**t≈4–5 秒掉一次,
-之后 175 秒干净**。那一次掉落正好落在配方自己写 `display/mode` 的时刻——也就是编程
-显示时本来就会有一次正常重插——是预期行为;真正太吃紧的链路会**一直**掉。所以
-1080p60 现在是有数据支撑的,而不是靠 12 秒的运气。
+`/var/log/hpd-boot.log`。至今 **5 次开机(都是 1080p60):3 次在 t≈4–5 秒掉一次、
+2 次整窗 drops=0,而 5 次里没有一次是在 5 秒之后掉的**——每个窗口的后 175 秒都是干净的。
+那一次掉落正好落在配方自己写 `display/mode` 的时刻,但**不能据此断定因果**:同样的写法
+有两次根本没掉,所以只能说"与之相符"。承重的是后半句:这台机器开机阶段搞出的动静都发生在
+头五秒内,之后整窗稳住。所以 1080p60 现在是有数据支撑的,而不是靠 12 秒的运气。
 
 仍然能区分问题的诊断手段(路径是 `/sys/class/amhdmitx/amhdmitx0/`——类名是
 `amhdmitx`,所以 `cat /sys/class/amhdmitx0/hpd_state` 在这个 build 上根本就是错路径):
@@ -2336,8 +2345,11 @@ genmon 里的 WiFi 状态条)以 16 bpp 活在 fb0 上,**`1080p60hz` / 1920×108
 脚本拉起;肉眼确认画面稳定、四边不裁。此前挂着的**再冷拔电一次已经做完并通过**(之后
 又做了两次),三个输入链修复(`HOME=/root`、Xorg 前起 eudev、`autosuspend=-1`)开机读数
 全部正确。开机窗口的 HPD 现在是**测出来的**而不是推断的:`display-up.sh` 内部有个 180
-秒采样器写 `/var/log/hpd-boot.log`,两次 1080p60 冷启动都是 **t≈4–5 秒掉一次(配方自己
-写 mode 的那一下)、之后 175 秒干净**。热重启与冷重启都全自动跑通,有线/无线/时钟照常起来。
+秒采样器写 `/var/log/hpd-boot.log`,累计 5 次开机:**3 次 t≈4–5 秒掉一次、2 次整窗
+drops=0,但没有一次在 5 秒之后掉**。热重启与冷重启都全自动跑通,有线/无线/时钟照常起来。
+`/etc/fstab` 里新增的两条 bind(`/var/cache/apk`→`/opt`、`/var/log`→`/home`)也已确认
+是**开机自动生效**而不是手工挂上去的:重启后两条都在 `/proc/mounts` 里,而之前
+`mv` 跨文件系统时被 Xorg 句柄攥在根分区上的 `(deleted)` 日志也随重启消失。
 
 ## 8. 复现命令速查
 
