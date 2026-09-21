@@ -8,3 +8,8 @@ tmpfs    /run  tmpfs  nosuid,nodev 0 0
 UUID=0e47aa17-2e13-4908-b15d-51783eda2e91  /home  ext4 defaults,noatime 0 0   # p3 cache
 UUID=6c9d3441-a63e-4751-9b1f-9ca987f1aae6  /srv   ext4 defaults,noatime 0 0   # p18 system
 UUID=8e26721e-987f-4589-9bf5-4fbf1b18fef7  /opt   ext4 defaults,noatime 0 0   # p20 cus_config
+
+# Bind the two things that reliably fill a root FS onto reclaimed partitions.
+# inittab `::sysinit:mount -a` runs before rc.local, so no extra service is needed.
+/opt/apk-cache	/var/cache/apk	none	bind	0 0
+/home/log	/var/log		none	bind	0 0
