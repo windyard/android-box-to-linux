@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=WiFi
+Exec=/usr/bin/xfce4-terminal -T "WiFi" -e "/usr/local/bin/wifi-add.sh"
+Icon=network-wireless-symbolic
+Terminal=false

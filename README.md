@@ -506,6 +506,48 @@ payloads with Android deleted, so they are inert and can just be `mkfs`'d and
 mounted. `dtbo`, `boot`, `recovery`, `vbmeta` and `tee` are the boot/signing path
 and stay untouched.
 
+### 5.5 How the box is powered down and back up — and what that does *not* test
+
+No display manager, no `logind`, no ConsoleKit, no OpenRC: the only power path
+has been two prompt scripts plus desktop icons, which have been on the box since
+2026-09-19 and were **absent from this repo until 2026-09-22**. The README's §9
+told people to "use the desktop Reboot/ShutDown icons" while the thing they run
+existed nowhere in the tree. Now in `stage/`:
+
+```
+stage/desktop/{Reboot,ShutDown,Terminal,Files,WiFi}.desktop   -> /root/Desktop
+stage/reboot-prompt.sh, stage/shutdown-prompt.sh              -> /usr/local/bin
+```
+
+Each prompt script is three lines: an `xmessage` confirm, then `/sbin/reboot` or
+`/sbin/poweroff`. The confirm is not ceremony — the §0 ground rule is that a
+power change happens only when a human asks, and a desktop icon is one careless
+click away from breaking it.
+
+**busybox `reboot`/`poweroff` go through init unless `-f`** — the applet's own
+help text says `-f Force (don't go through init)`, pid 1 is busybox init, and
+`/etc/inittab` carries `::shutdown:/bin/busybox umount -a -r`. So a GUI reboot
+really does unmount cleanly, which is what makes the desktop icon safe.
+
+Equally worth recording is how **not** to establish it. The first draft of this
+paragraph cited `tune2fs -l → Filesystem state: clean` on all four filesystems as
+proof of an orderly unmount. It is not proof: ext4's `s_state` is not a dirty
+flag, so it reads `clean` while mounted, and a bare `reboot(2)` would not
+necessarily have changed it. `dmesg` could not settle it either — this box's ring
+buffer begins around 4.9 s, so the boot-time messages that would have shown a
+journal replay (or its absence) are already gone; "no recovery lines" there means
+nothing. The help text is the evidence. The filesystem state was a story that
+fitted.
+
+What this does **not** test is the case §0 is actually about. A GUI or SSH reboot
+is warm: U-Boot, the `recovery`-partition boot image and the from-dead HDMI
+handshake are all skipped, and `data` is cleanly unmounted so nothing is
+replayed. Power was never removed. So "the box self-recovers from being
+unplugged" is verified only for the configuration that the earlier genuine
+power-cycles exercised — with the current storage, timezone, `time-up.sh` and
+1080p60 stack combined for the first time, **a true unplug-and-return test is
+outstanding** (§9).
+
 ---
 
 ## 6. Built-in WiFi
@@ -1488,9 +1530,9 @@ payload was deliberately erased; no full system/vendor backup exists).
    1080p60 needs, so the box was pinned to `1080p30hz`. That was wrong: the
    supporting samples were 12 s and 25 s windows, shorter than the interval
    between the events counted, and `720p50`/`1080p30` share one clock yet were
-   reported as behaving differently. Re-measured at 30–60 s and now across two
-   cold boots with a 180 s in-boot sampler: **1080p60 is stable** and is the
-   shipped mode. The earlier "one more cold power-cycle" item is **done and
+   reported as behaving differently. Re-measured at 30–60 s and now
+   across **five** sampled boots with a 180 s in-boot sampler: **1080p60 is
+   stable** and is the shipped mode. The earlier "one more cold power-cycle" item is **done and
    passed**. Two things follow:
    * `/dev/env` still boots `outputmode=720p50hz` — which is also this TV's
      EDID `preferred_mode` — while `display-up.sh` writes `1080p60hz` at
@@ -1499,12 +1541,18 @@ payload was deliberately erased; no full system/vendor backup exists).
      every axis *after* its own mode write, in one pass.
    * the real open question is *why* the boot pass flapped at all. It stopped
      flapping once the link was re-established by hand, and has not reappeared
-     in the two boots since — so that is unreproduced, not explained. If
+     in the five sampled boots since — so that is unreproduced, not explained. If
      "no signal" ever returns after a cold boot, re-run `display-up.sh` once
      and read `/var/log/hpd-boot.log` **before** changing the mode.
    Still open: a native logout dialog would need elogind + a D-Bus system bus
    (rejected on risk grounds, §7.7.7) — until then use the desktop
-   **Reboot**/**ShutDown** icons.
+   **Reboot**/**ShutDown** icons (§5.5, whose scripts were missing from this
+   repo until 2026-09-22).
+   *And the §0 test is still not done on the current configuration*: every
+   reboot since the storage binds, `tzdata` timezone, `time-up.sh` and 1080p60
+   all landed together has been **warm** (SSH or desktop icon, which unmounts
+   properly but never touches U-Boot or the from-dead HDMI handshake). Removing
+   power and putting it back is the one thing that has not been re-run since.
 2. **WiFi boot persistence is VERIFIED** — `/var/log/wifi-up.log` ends
    `INTERNET via wlan0: OK` after a real power-cycle. Nothing left here; the
    `sdiohal` single-load-per-boot rule (§6) is the only thing to remember.
@@ -1771,6 +1819,25 @@ root 执行我们的 `update-binary`**。
   *之下*的:`vendor`(p16,320M)、`odm`(p17,128M)、`product`(p19,128M)是 Android
   已被删后的载荷,直接 `mkfs` 挂上就行;`dtbo`/`boot`/`recovery`/`vbmeta`/`tee`
   属于启动与签名链,不碰。
+* **这台机器怎么关机/重启,以及这证明了什么(2026-09-22 补)**:没有显示管理器、没有
+  logind、没有 ConsoleKit、也没有 OpenRC,唯一的电源路径是桌面上两个图标 +
+  `/usr/local/bin/{reboot,shutdown}-prompt.sh`(`xmessage` 二次确认,然后
+  `/sbin/reboot` 或 `/sbin/poweroff`)。这两个脚本和 `Desktop/*.desktop` 从
+  2026-09-19 起就在机器上,却**直到今天都不在仓库里**——§9 一边写着"用桌面图标关机",
+  一边被点的东西没有任何记录。现已收进 `stage/`。确认弹窗不是形式:§0 的规矩是
+  电源变更只能由人提出,而桌面图标一次误点就能破。
+  busybox 的 `reboot`/`poweroff` **默认走 init**(applet 帮助里写着
+  `-f Force (don't go through init)`),pid 1 就是 busybox init,inittab 有
+  `::shutdown:/bin/busybox umount -a -r`,所以图标重启是干净卸载后再重启。
+  顺带记一个**反面论证方法**:我第一版拿 `tune2fs -l → Filesystem state: clean`
+  当"有序关机"的证据,这不算证据——ext4 的 `s_state` 不是脏标志,挂载期间也读作
+  `clean`,直接 `reboot(2)` 也未必会改它;`dmesg` 也定不下来,本机环形缓冲从
+  ~4.9 秒才开始,该出现"journal recovery"的那批早期消息已经没了,"没有 recovery
+  行"在这种情况下不含信息。帮助文本才是证据,文件系统状态只是一个自洽的说法。
+  **但图标重启是热的**:U-Boot、`recovery` 分区里的启动镜像、HDMI 从冷链路重新握手
+  全都跳过,而且 `data` 被干净卸载、没有回放。也就是说"断电再上电仍能自救"这条
+  §0 底线,在存储绑定 + tzdata 时区 + `time-up.sh` + 1080p60 这套组合同时生效之后
+  **还没重做过**,仍然挂着(见 §9)。
 
 ## 6. 内置 WiFi
 
@@ -2443,7 +2510,11 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
      冷启动也没复发——所以是**未复现**,不是已解决。若哪天冷启动后又"无信号",先重跑
      一次 `display-up.sh` 并读 `/var/log/hpd-boot.log`,**再**考虑换 mode。
    仍未做:让退出对话框的关机/重启按钮变活需要 **elogind + dbus 系统总线**(§7.7.7
-   因风险原因否决);在那之前用桌面上的 **Reboot** / **ShutDown** 图标。
+   因风险原因否决);在那之前用桌面上的 **Reboot** / **ShutDown** 图标(见 §5.5,
+   它们调用的脚本直到 2026-09-22 才进仓库)。
+   **§0 那条底线至今没在当前组合上重做**:自存储绑定 + `tzdata` 时区 + `time-up.sh`
+   + 1080p60 一起生效之后,每一次重启都是**热的**(SSH 或桌面图标 —— 卸载是干净的,
+   但根本不碰 U-Boot,也不碰 HDMI 从冷链路重新握手)。拔电再上电是唯一没重跑的一项。
 2. **WiFi 开机自启已验证通过**:真实断电重启之后 `/var/log/wifi-up.log` 以
    `INTERNET via wlan0: OK` 结束。这一项没有遗留;要记的只有 §6 那条
    `sdiohal` 每次开机只能加载一次的规矩。
