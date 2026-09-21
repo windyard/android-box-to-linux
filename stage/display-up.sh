@@ -8,17 +8,43 @@
 #     vertical scaler paint a luminance ramp over ALL content (the "gradient").
 #   - the VIU latches the canvas only on FBIOPUT(FORCE)+FBIOPAN: fbfill does
 #     that as a side effect; osd_do_hwc completes hardware composition.
+#
+# Output mode is 1080p30hz, NOT 1080p60hz: the link fails on TMDS *clock rate*,
+# not on resolution.  1080p60 and 1080p50 both need 148.5 MHz, which this
+# cable/TV combination cannot lock - the sink drops HPD every ~8s and each
+# replug re-runs EDID + mode-set, which re-enables the logo plane and discards
+# the latched canvas (panel reads "no signal" while hdmi_init/cur_VIC look
+# healthy).  Anything at 74.25 MHz locks solid: measured 0 HPD drops/12s at
+# 1080p30, 1080p25 and 1080i50.  1080p30 is picked as the highest-quality of
+# those (full 1920x1080 progressive, 30Hz refresh).  Go back to 1080p60hz only
+# after the cable/input is confirmed good at 148.5 MHz.
+MODE=1080p30hz
+W=1920
+H=1080
+X1=$((W - 1))
+Y1=$((H - 1))
+
 LOG=/var/log/display-up.log
 exec >>"$LOG" 2>&1
-echo "=== $(date) display-up start"
+echo "=== $(date) display-up start ($MODE ${W}x${H})"
 
-fbset -fb /dev/fb0 -g 1920 1080 1920 1080 16
-echo 1080p60hz > /sys/class/display/mode
+# Take the previous session down FIRST. A live Xorg owns fb0 and restores its
+# own var (1920x1080) over our fbset, which leaves the framebuffer and the OSD
+# axes disagreeing.  Never pkill -f here - the pattern matches this shell's own
+# command line and kills the session (README §5.3).
+if pidof Xorg >/dev/null; then
+    kill $(pidof xfce4-session) 2>/dev/null
+    kill $(pidof Xorg) 2>/dev/null
+    sleep 3
+fi
+
+fbset -fb /dev/fb0 -g $W $H $W $H 16
+echo $MODE > /sys/class/display/mode
 echo 1 > /sys/class/graphics/fb1/blank
 echo 0 > /sys/class/graphics/fb0/ver_clone
-echo "osd0,0,0,1919,1079" > /sys/class/display/axis
-echo "0 0 1919 1079" > /sys/class/graphics/fb0/free_scale_axis
-echo "0 0 1919 1079" > /sys/class/graphics/fb0/window_axis
+echo "osd0,0,0,$X1,$Y1" > /sys/class/display/axis
+echo "0 0 $X1 $Y1" > /sys/class/graphics/fb0/free_scale_axis
+echo "0 0 $X1 $Y1" > /sys/class/graphics/fb0/window_axis
 
 /root/fbfill /dev/fb0 000000 1
 echo 1 > /sys/class/graphics/fb0/osd_do_hwc

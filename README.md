@@ -949,8 +949,10 @@ synced between `tools/` and box `/root`, sha256-verified, rebuilt on box):
 1920 1080 16` (`transp=0/0` ⇒ §7.5's alpha trap structurally impossible),
 Xorg 21.1.14 fbdev at depth 16, openbox — uniform gray desktop, verified by
 eye on the panel. Note the monitor is a **4K TV** (owner confirmed); irrelevant
-so far since the box emits 1080p60 (VIC 16) and every pattern reads correctly
-post-fix. One config gotcha: X **ServerAbortFatals with no core pointer** on
+then, since the box emitted 1080p60 (VIC 16) and every pattern read correctly
+post-fix — **that did not survive the next cold boot**: the link cannot hold
+1080p60's clock and the box now runs **1080p30**, see §7.7.8.
+One config gotcha: X **ServerAbortFatals with no core pointer** on
 this keyboard-less board — dummy `kbd` + `vmmouse` InputDevices in
 `90-amlfb.conf` (plus a ServerLayout referencing them) make it start.
 
@@ -1046,14 +1048,81 @@ the boot script:**
   survives replug. Both the udev start and the autosuspend kill are now tail
   steps of `display-up.sh`, so the whole input chain is unattended again.
 
+#### 7.7.8 The seventh gate: the TMDS **clock**, not the recipe (verified live 2026-09-21)
+
+The deferred cold power-cycle was performed and **the fixed chain worked**.
+`display-up.sh` ran clean at boot — dmesg: `vout: new mode 1080p60hz set ok`,
+`fb: osd_update_disp_axis_hw:dispdata(0,0,1919,1079)`, `fb: osd[1] enable: 0
+(display-up.sh)` — Xorg/xfwm4/xfdesktop/xfce4-panel/udevd all alive, both axes
+still programmed, bpp 16. **The panel still read "no signal".** All six gates
+were satisfied and there was still no picture, which is what forced this below
+everything examined so far.
+
+The cause sits one layer under §7.3/§7.7.1/§7.7.7: **the link cannot hold the
+148.5 MHz TMDS clock that 1080p60 (and 1080p50) require.** Measured, not inferred:
+
+| mode set | `tmds_clk` (dmesg) | HPD drops while sampled |
+|---|---|---|
+| `1080p60hz` | 148500 | every **~8.16 s**, continuously |
+| `720p50hz` | 74250 | 0 / 25 s |
+| `1080p30hz` | 74250 | 0 / 12 s |
+| `1080p25hz` | 74250 | 0 / 12 s |
+| `1080i50hz` | 74250 | 0 / 12 s |
+
+Why this hides so well: **every transmitter-side health check passes while the
+link is failing** — `hdmi_init=1`, `hpd_state=1` between the drops,
+`config → cur_VIC: 16`, `tmds_clk 148500`, `avmute 0`, `vid_mute 0`,
+`edid_parsing ok`. The sink loses lock on the *data*, pulls HPD low for ~1 s,
+and the driver treats that as a genuine unplug → re-runs EDID + mode-set →
+**and that is what destroys the picture**: the mode-set re-enables the fb1 logo
+plane and discards the FORCE-put/pan latch. So the §7.3 recipe is silently
+undone from under you, every 8 seconds, leaving nothing in `dmesg` but
+`plugout`/`plugin`.
+
+Diagnostics that actually discriminate (`/sys/class/amhdmitx/amhdmitx0/` — note
+the class is `amhdmitx`, so `cat /sys/class/amhdmitx0/hpd_state` is simply the
+wrong path on this build):
+
+* sample `hpd_state` once a second for ~20 s and **count the zeros**. A
+  metronomic interval (8.16 s here) is a negotiated retry; a bad contact is
+  irregular;
+* `preferred_mode` (this TV's EDID answers `720p50hz`), `sink_type`,
+  `edid_parsing`, `config` for `cur_VIC`, `dmesg | grep tmds_clk` for the clock;
+* **`fake_plug=1` looks like a cause and is not** — clearing it left the flap at
+  exactly the same rate, so read-back of that debug node is not a diagnosis;
+* absent on this BSP: `hpd_state_check`, `5V_state`; `phy`,
+  `hdmi_config_info` and `swap` read empty.
+
+Resolution: run at **`1080p30hz`** — full 1920×1080 progressive at 74.25 MHz,
+the highest-quality mode in the band this link locks. **This is a workaround,
+not a verdict about the box.** §7.7.7 read every colour pattern correctly on this
+same TV at 1080p60, so 148.5 MHz *has* worked here; something physical (cable,
+TV input, the 5V/HPD handshake) changed since. Re-test 1080p60 on a different
+cable or input before blaming the box's HDMI PHY.
+
+Two changes to `stage/display-up.sh` (deployed to `/usr/local/bin/`):
+
+1. `MODE`/`W`/`H` are variables at the top and `display/axis`,
+   `free_scale_axis` and `window_axis` derive `W-1`/`H-1` from them, so fb
+   geometry and OSD geometry can no longer drift apart — §7.7.4 hypothesis 1 was
+   still live in the hardcoded version.
+2. **Session teardown moved to the *top* of the script.** A live Xorg owns fb0
+   and restores its own `var` over our `fbset`: the first cut, which tore the
+   session down just before starting Xorg, produced `fb0 xres=1920 yres=1080`
+   against axes programmed for `1279x719`. Teardown
+   (`kill $(pidof xfce4-session)`, `kill $(pidof Xorg)` — never `pkill -f`,
+   §5.3) must precede *any* fb or mode write, which also makes the script safely
+   re-runnable over SSH with no reboot at all.
+
 Current state as of this writing:
-X + **XFCE4** (panel + xfdesktop icons + thunar + xfce4-terminal) live on fb0
-at 16 bpp via the persisted script, udev-hotplugged USB mouse working;
-box warm-rebooted once (rc.local path ran unattended, network and WiFi fine
-after a *warm* boot); the last *cold* boot found the three bugs above (all
-fixed and in the boot path) — one more cold power-cycle would verify the
-fixed chain end-to-end, but every step is idempotent and re-appliable over
-SSH without any reboot.
+X + **XFCE4** (panel + xfdesktop icons + thunar + xfce4-terminal) live on fb0 at
+16 bpp **at 1080p30hz / 1920×1080**, confirmed by eye on the 4K TV ("looks
+perfect") with `hpd_low=0/25`. The cold power-cycle that §9 used to list as
+outstanding **has been done**: the three §7.7.7 input-chain fixes held
+(`HOME=/root`, udevd before Xorg, `autosuspend=-1` all read back correct), and
+the only new failure was the clock gate above. The box warm-rebooted and
+cold-booted through the persisted `rc.local` path; network and WiFi come up
+unattended.
 
 ---
 
@@ -1097,19 +1166,32 @@ ssh root@192.0.2.126                   # dropbear, key-only
 
 # --- display: persisted since §7.7.7; runs from rc.local every boot ---
 # Manual re-apply (same order as /usr/local/bin/display-up.sh):
-echo 1 > /sys/class/graphics/fb1/blank        # 1. kill the logo plane. Re-do after
-echo 0 > /sys/class/graphics/fb0/ver_clone    #    ANY display/mode write.
+kill $(pidof xfce4-session) $(pidof Xorg) 2>/dev/null
+                                              # 0. a live Xorg owns fb0 and will
+                                              #    restore its own var over our
+                                              #    fbset — tear it down FIRST
+                                              #    (never pkill -f, §5.3)
+echo 1080p30hz > /sys/class/display/mode      # 1. SEVENTH GATE (§7.7.8): stay at
+                                              #    74.25 MHz. 1080p60hz/1080p50hz
+                                              #    need 148.5 MHz, the TV will not
+                                              #    lock, and its HPD retry every
+                                              #    ~8s re-enables the logo plane
+                                              #    and discards the latch below.
+                                              #    Check with: sample
+                                              #    amhdmitx/amhdmitx0/hpd_state
 fbset -fb /dev/fb0 -g 1920 1080 1920 1080 16  # 2. RGB565: no alpha field
-echo "osd0,0,0,1919,1079" > /sys/class/display/axis   # 3. geometry (osdN,x0,y0,x1,y1)
+echo 1 > /sys/class/graphics/fb1/blank        # 3. kill the logo plane. Re-do after
+echo 0 > /sys/class/graphics/fb0/ver_clone    #    ANY display/mode write.
+echo "osd0,0,0,1919,1079" > /sys/class/display/axis   # 4. geometry (osdN,x0,y0,x1,y1)
 echo "0 0 1919 1079" > /sys/class/graphics/fb0/free_scale_axis
-                                              # 4. THE FIFTH GATE (§7.7.7): the
+                                              # 5. THE FIFTH GATE (§7.7.7): the
                                               #    boot default 0 0 0 0 makes the
                                               #    v-scaler paint a luminance ramp
                                               #    over ALL content
 echo "0 0 1919 1079" > /sys/class/graphics/fb0/window_axis
                                               #    (part of the proven recovery)
-/root/fbfill /dev/fb0 ff0000 5               # 5. paint + FORCE-put + pan latch
-echo 1 > /sys/class/graphics/fb0/osd_do_hwc  # 6. kick hardware composition
+/root/fbfill /dev/fb0 ff0000 5               # 6. paint + FORCE-put + pan latch
+echo 1 > /sys/class/graphics/fb0/osd_do_hwc  # 7. kick hardware composition
 # SIXTH gate (§7.7.7): X's mode-set is non-FORCE — display-up.sh ends with
 # /root/fblatch once at the hand-off; live X updates then reach the panel
 # without relatching (cursor plane is hardware, always visible).
@@ -1141,9 +1223,24 @@ payload was deliberately erased; no full system/vendor backup exists).
    above (all fixed and in the boot path: `HOME=/root`, eudev before Xorg,
    `autosuspend=-1`). Session is **XFCE4** now (`dbus-launch startxfce4`,
    compositor off; the lite tint2/pcmanfm stack was installed first, verified,
-   then replaced and `apk del`'d). Remaining: one more cold power-cycle to
-   confirm the fixed chain end-to-end, and (for a native logout dialog) a
-   seatd/ConsoleKit — until then use the desktop **Reboot** icon.
+   then replaced and `apk del`'d).
+   **Then the cold boot found a seventh gate, and it is the shipped
+   configuration** (§7.7.8): the panel went "no signal" with all six gates
+   satisfied, because the link cannot hold the 148.5 MHz TMDS clock 1080p60
+   needs. Running at **`1080p30hz`** — 1920×1080 progressive at 74.25 MHz — is
+   HPD-stable and visually confirmed. So: the earlier "one more cold power-cycle"
+   item is **done and passed** (the three input-chain fixes held), and HDMI is
+   resolved *at 30 Hz*. Two things follow, both deliberate:
+   * `/dev/env` still boots `outputmode=720p50hz` while `display-up.sh` writes
+     `1080p30hz` at runtime, so boot and runtime modes **disagree by design**.
+     Unlike §7.7.4 hypothesis 1 that is harmless here — the script programs fb
+     geometry and every axis *after* its own mode write, in one pass.
+   * **1080p60 is a workaround casualty, not a dead box**: it worked throughout
+     §7.7.7 on this same 4K TV, so re-test it on another cable/input before
+     suspecting the HDMI PHY.
+   Still open: a native logout dialog would need elogind + a D-Bus system bus
+   (rejected on risk grounds, §7.7.7) — until then use the desktop
+   **Reboot**/**ShutDown** icons.
 2. **WiFi boot persistence is VERIFIED** — `/var/log/wifi-up.log` ends
    `INTERNET via wlan0: OK` after a real power-cycle. Nothing left here; the
    `sdiohal` single-load-per-boot rule (§6) is the only thing to remember.
@@ -1154,9 +1251,14 @@ payload was deliberately erased; no full system/vendor backup exists).
    consequence: the recovery invariant is now **power-cycle with the USB stick
    OUT ⇒ Alpine**; a stick left in the box *is* consulted every boot. Clearing
    any of it needs a deliberate env write (approval required).
-4. **Credential hygiene**: `zte.py` and `zte_browser.py` still hard-code the
-   router admin password and are *not* git-ignored. They should read it from the
-   environment or an ignored file (compare `.boxrootpass`, which is ignored).
+4. **Credential hygiene: CLOSED.** §9 used to claim `zte.py` / `zte_browser.py`
+   hard-coded the router admin password — that predates the publication scrub.
+   Re-checked in this tree: both now read
+   `os.environ.get("ZTE_ROUTER_PASSWORD", "")`, and because this repo has a
+   **single commit** which already contains the env-based form, the literal
+   password is **not** in the git history either. `.gitignore` covers
+   `*pass*`, `*.pem` (except `keys/`), `*.pcap`, `*.log`, `fw/`, `backup/`,
+   `parts/`, `inis/`. Nothing left to do here.
 5. Optional: Bluetooth on the same UWE5623 combo (`sprdbt_tty.ko`, carved,
    untested).
 
@@ -1821,11 +1923,69 @@ ConsoleKit / seatd**,所以 XFCE 自带退出对话框里的重启/关机按钮�
   抖动立刻停止,重新插拔也不复发。udevd 拉起和 autosuspend 关闭现在都是
   `display-up.sh` 的收尾步骤,整条输入链路重新做到开机全自动。
 
+**第七道闸:TMDS 时钟,而不是配方(2026-09-21 实测)**
+
+那次说要补的**冷拔电重启终于做了,而且修好的链路是通的**:`display-up.sh` 开机
+干净跑完(dmesg 里有 `vout: new mode 1080p60hz set ok`、
+`fb: osd_update_disp_axis_hw:dispdata(0,0,1919,1079)`、
+`fb: osd[1] enable: 0 (display-up.sh)`),Xorg/xfwm4/xfdesktop/xfce4-panel/udevd
+全在,两个 axis 也都还是编程好的,bpp 16。**可显示器仍然报"无信号"**——六道闸全部
+满足却没有画面,这迫使排查下沉到此前谁都没看的一层。
+
+根因:**这条链路锁不住 1080p60(以及 1080p50)所需的 148.5 MHz TMDS 时钟。**
+实测数据,不是推测:
+
+| 设置的 mode | `tmds_clk`(dmesg) | 采样期内 HPD 掉几次 |
+|---|---|---|
+| `1080p60hz` | 148500 | **每 ~8.16 秒一次**,持续 |
+| `720p50hz` | 74250 | 0 / 25 秒 |
+| `1080p30hz` | 74250 | 0 / 12 秒 |
+| `1080p25hz` | 74250 | 0 / 12 秒 |
+| `1080i50hz` | 74250 | 0 / 12 秒 |
+
+为什么这么难看出来:**链路已经在失败了,发送端的健康检查却全部通过**——
+`hdmi_init=1`、掉之前 `hpd_state=1`、`config → cur_VIC: 16`、`tmds_clk 148500`、
+`avmute 0`、`vid_mute 0`、`edid_parsing ok`。真相是接收端**锁不住数据**,把 HPD
+拉低约 1 秒;驱动把这当成一次货真价实的拔线,于是重跑 EDID + mode-set——
+**而画面就是在这一步被毁掉的**:mode 写入会重新使能 fb1 logo 平面、并丢弃
+FORCE-put/pan 的锁存。于是 §7.3 的配方每 8 秒被悄悄抹掉一次,`dmesg` 里除了
+`plugout`/`plugin` 什么都不留。
+
+真正能区分的诊断手段(路径是 `/sys/class/amhdmitx/amhdmitx0/`——类名是
+`amhdmitx`,所以 `cat /sys/class/amhdmitx0/hpd_state` 在这个 build 上根本就是错路
+径):
+
+* 每秒采一次 `hpd_state`、采 ~20 秒,**数里面有几个 0**。间隔恒定(这里是 8.16 秒)
+  说明是协商重试;接触不良是不规则的;
+* `preferred_mode`(这台电视的 EDID 答的是 `720p50hz`)、`sink_type`、
+  `edid_parsing`、`config` 里的 `cur_VIC`,以及 `dmesg | grep tmds_clk` 看实际时钟;
+* **`fake_plug=1` 看着像元凶,其实不是**——清掉之后抖动速率分毫不差,所以这个调试
+  节点的读数不能当诊断结论;
+* 这个 BSP 上没有 `hpd_state_check`、`5V_state`;`phy`、`hdmi_config_info`、`swap`
+  读出来是空的。
+
+结论:**改用 `1080p30hz`**——1920×1080 逐行、74.25 MHz,是这条链路能锁住的频段里
+画质最高的一档。**这是权宜之计,不是给这台机器定罪**:§7.7.7 里同一台 4K 电视在
+1080p60 下每种颜色图案都读对过,说明 148.5 MHz 在这台机器上*曾经*是好的;之后再换
+一根线或换一个电视输入口复测 1080p60,再谈是否怀疑 HDMI PHY。
+
+`stage/display-up.sh`(已部署到 `/usr/local/bin/`)的两处改动:
+
+1. `MODE`/`W`/`H` 提到文件头做变量,`display/axis`、`free_scale_axis`、
+   `window_axis` 全部由 `W-1`/`H-1` 推出来,帧缓冲几何和 OSD 几何**再也不可能对不上**
+   ——写死的旧版里 §7.7.4 的假设 1 其实还活着。
+2. **拆旧会话的步骤移到了脚本最前面。** 活着的 Xorg 拥有 fb0,会用它自己的 `var`
+   覆盖我们的 `fbset`:第一版只在启动 Xorg 前拆会话,结果就是
+   `fb0 xres=1920 yres=1080` 对着按 `1279x719` 编程的 axis。所以
+   (`kill $(pidof xfce4-session)`、`kill $(pidof Xorg)`——绝不能用 `pkill -f`,
+   见 §5.3)必须排在**任何** fb / mode 写入之前;顺带也让脚本可以在 SSH 里安全重放、
+   完全不必重启。
+
 当前状态:X + **XFCE4** 桌面(panel + xfdesktop 图标 + thunar + xfce4-terminal)以
-16 bpp 活在 fb0 上,由持久化脚本拉起;udev 热插拔的 USB 鼠标已可用;机器此前
-**热重启过一次**(rc.local 全自动跑通,热重启后有线/无线都正常);最近一次**冷启动**
-暴露了上面三个 bug(全部已修进开机链:HOME=/root、Xorg 前起 eudev、autosuspend=-1)。
-再冷拔电一次即可端到端确认修好的链路,但每一步都能在 SSH 里幂等重放,不必再为显示重启。
+16 bpp 活在 fb0 上,**`1080p30hz` / 1920×1080**,由持久化脚本拉起;肉眼确认
+("looks perfect"),`hpd_low=0/25`。此前挂着的**再冷拔电一次已经做完并通过**——三个
+输入链修复(`HOME=/root`、Xorg 前起 eudev、`autosuspend=-1`)开机读数全部正确——唯一
+的新故障就是上面那道时钟闸。热重启与冷重启都全自动跑通,有线/无线照常起来。
 
 ## 8. 复现命令速查
 
@@ -1858,6 +2018,12 @@ ssh root@192.0.2.126                  # dropbear,仅密钥登录
 
 # --- 显示:§7.7.7 起已持久化,rc.local 每次开机自动跑 display-up.sh ---
 # 手动重做(顺序与脚本一致):
+# 第 0 步——先拆旧会话:活着的 Xorg 拥有 fb0,会用它自己的 var 覆盖我们的 fbset。
+#   kill $(pidof xfce4-session) $(pidof Xorg)      # 绝不要用 pkill -f(§5.3)
+# 第七道闸(§7.7.8)——mode 必须是 1080p30hz:1080p60hz/1080p50hz 要 148.5MHz,
+#   这台电视锁不住,每 ~8 秒掉一次 HPD,而每次重连都会重新打开 logo 层并丢掉锁存。
+#   echo 1080p30hz > /sys/class/display/mode       # 之后第 1 步要重做
+#   判断有没有锁住:每秒采一次 /sys/class/amhdmitx/amhdmitx0/hpd_state,数 0 的个数
 echo 1 > /sys/class/graphics/fb1/blank             # 1. 关 logo 层。任何对
 echo 0 > /sys/class/graphics/fb0/ver_clone        #    display/mode 的写都会把它
 fbset -fb /dev/fb0 -g 1920 1080 1920 1080 16      #    重新打开,第 1 步要重做。
@@ -1896,9 +2062,19 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    `/usr/local/bin/display-up.sh` 固化进 `rc.local`;冷启动又暴露了三个 bug 并全部
    修进开机链(`HOME=/root`、Xorg 前先起 eudev、`autosuspend=-1`)。默认 session
    现在是 **XFCE4**(`dbus-launch startxfce4`,合成器关;更早的 tint2/pcmanfm 轻量
-   版验证过、随后被替换并 `apk del` 清掉)。USB 鼠标经 udev 热插拔已可用。**遗留:
-   再一次冷拔电重启做端到端确认**;另外要让 XFCE 自带退出对话框的关机/重启按钮变活,
-   需要装 seatd/ConsoleKit,现在先用桌面上的 **Reboot** 图标。
+   版验证过、随后被替换并 `apk del` 清掉)。USB 鼠标经 udev 热插拔已可用。
+   **然后冷启动又暴露了第七道闸,而且它才是现在的出厂配置**(§7.7.8):六道闸全满足
+   却仍然"无信号",因为链路锁不住 1080p60 要的 148.5 MHz TMDS 时钟;改成
+   **`1080p30hz`**(1920×1080 逐行、74.25 MHz)后 HPD 稳定、肉眼确认完美。于是:
+   挂着的"再一次冷拔电确认"**已经完成且通过**(三个输入链修复读数全部正确),
+   HDMI 是**在 30Hz 下**算 resolved。两点由此而来的副作用都是有意为之:
+   * `/dev/env` 仍按 `outputmode=720p50hz` 开机,而 `display-up.sh` 运行时写
+     `1080p30hz`,**开机与运行时模式故意不一致**。与 §7.7.4 假设 1 不同,这里无害:
+     脚本在*自己的* mode 写入之后,一次性把帧缓冲几何和所有 axis 全编程完。
+   * **1080p60 是被绕过去的、不是被判死刑的**:§7.7.7 在同一台 4K 电视上以
+     1080p60 读过所有图案,所以怀疑 HDMI PHY 之前,先换线/换输入口复测 1080p60。
+   仍未做:让退出对话框的关机/重启按钮变活需要 **elogind + dbus 系统总线**(§7.7.7
+   因风险原因否决);在那之前用桌面上的 **Reboot** / **ShutDown** 图标。
 2. **WiFi 开机自启已验证通过**:真实断电重启之后 `/var/log/wifi-up.log` 以
    `INTERNET via wlan0: OK` 结束。这一项没有遗留;要记的只有 §6 那条
    `sdiohal` 每次开机只能加载一次的规矩。
@@ -1908,8 +2084,12 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    `upgrade_step=2` 也还在里面。**实际后果**:安全不变式变成了"**拔电时把 U 盘拔掉**
    ⇒ 回 Alpine",U 盘留在机器里是每次开机都会被读的。清掉这些需要一次明确的 env 写入
    (需授权)。
-4. **凭据卫生**:`zte.py`、`zte_browser.py` 里还硬编码了路由器管理口令,而且没进
-   `.gitignore`;应改成从环境变量或被忽略的文件读取(对照已经忽略的 `.boxrootpass`)。
+4. **凭据卫生:已结**。§9 以前说 `zte.py`、`zte_browser.py` 硬编码了路由器管理口令,
+   那是发布前清洗之前的旧话。在本树里复核:两个文件现在都是
+   `os.environ.get("ZTE_ROUTER_PASSWORD", "")`;而且本仓库**只有一个 commit**、其中
+   就已经是读环境变量的形式,所以明文口令**也不在 git 历史里**。`.gitignore` 覆盖
+   `*pass*`、`*.pem`(除 `keys/`)、`*.pcap`、`*.log`、`fw/`、`backup/`、`parts/`、
+   `inis/`。这一项没有遗留。
 5. 可选:同一颗 UWE5623  combo 上的蓝牙(`sprdbt_tty.ko`,已雕出,未测)。
 
 ---
