@@ -439,7 +439,8 @@ as `/dev/<name>`, with **minor N == mmcblk0pN**. The map that matters:
 ### 5.4 Where the "full" eMMC actually was (2026-09-21)
 
 Root sat at 70 % used, which reads like a device that needs repartitioning. It
-did not. 7.63 GiB device, 21 partitions:
+did not. 7.28 GiB usable (15,269,888 sectors on an 8 GB `8GTF4R`; the
+vendor label counts decimal GB), 21 partitions:
 
 | partition | node | mount | size | used |
 |---|---|---|---|---|
@@ -744,10 +745,9 @@ xfconf-query -c xfce4-panel -p /plugins/plugin-12/timezone \
 
 Both the read-back and the on-disk XML confirm the property stuck (xfconf
 flushes immediately, verified by `mtime` rather than by trusting the exit
-status), so it survives a hard power cut, not just a clean logout. **What is
-still open: nobody has looked at the screen yet.** Everything above is true
-about the files and about libc; the panel reading `23:2x` is the one claim
-awaiting eyes, and it should not be recorded as verified until then.
+status), so it survives a hard power cut, not just a clean logout. The panel was
+then read off the screen and showed the correct CST time, which is the check the
+two earlier diagnoses skipped — recorded only after it happened, not before.
 
 Do **not** substitute a `TZ` environment variable. An explicit `TZ` overrides
 `/etc/localtime` for every process that inherits it, so a stray `TZ=UTC` pins a
@@ -1732,7 +1732,7 @@ root 执行我们的 `update-binary`**。
     **禁用口令登录的 dropbear**(`-s`),host key 在 rc.local 里缺失时自动生成,
     公钥放 `/root/.ssh/authorized_keys`,2323 端口关闭(commit `2f3f55f`)。
 * **eMMC"装满了"其实装在哪(2026-09-21)**:根分区 70% 看着像要重划表,其实不是。
-  7.63 GiB / 21 分区:`data`=p21→`/` 3.3G、`cache`=p3→`/home` 1.0G、
+  可用 7.28 GiB(15,269,888 扇区,芯片是 8 GB `8GTF4R`;厂商标的 8 GB 是十进制)/ 21 分区:`data`=p21→`/` 3.3G、`cache`=p3→`/home` 1.0G、
   `system`=p18→`/srv` 1.2G、`cus_config`=p20→`/opt` 487M,盘尾还剩 184M 未分配。
   后三个**挂好了、格好了、空的**,只是没派活。而 `/root` 独占 1.7G,内容是两个文件:
   `armbian.img.gz` 和 `m302a.img.gz`,各 920,114,868 字节、**sha256 完全相同**
@@ -1857,8 +1857,8 @@ root 执行我们的 `update-binary`**。
   所以修复两头都下,不赌哪一个才是主因:`apk add tzdata`(2026b,1.6 MiB)让名字能解析,
   再 `xfconf-query -c xfce4-panel -p /plugins/plugin-12/timezone -n -t string -s Asia/Shanghai`
   不再依赖默认值。属性写后读回、XML 的 mtime 都确认落盘(硬断电也在),退出码不作数。
-  **仍未确认的:还没有人眼看面板。**上面全是对文件和 libc 为真,面板显示 `23:2x`
-  是唯一等眼睛验证的一条,在那之前不许写成"已验证"。
+  最后面板被**人眼读出为正确的 CST 时间**才算完——这一步正是前两个诊断
+  跳过去没做的,所以只在它发生之后记录,不许提前写。
   别拿 `TZ` 环境变量当替身:显式 `TZ` 会覆盖 `/etc/localtime`,残留的 `TZ=UTC` 会把
   一整棵进程树钉在 UTC;而没装 tzdata 时残留的 `TZ=Asia/Shanghai` 同样钉在 UTC,
   还看起来完全像是故意的。
