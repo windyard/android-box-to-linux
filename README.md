@@ -419,8 +419,9 @@ as `/dev/<name>`, with **minor N == mmcblk0pN**. The map that matters:
   original kept at `/data/local/tmp/install-recovery.sh.orig`.
 * **`apk` could not install anything.** No RTC battery → clock resets to 2020 on
   every boot → TLS `certificate verify failed`. Fix: `rc.local` sets a floor
-  (`date -u -s @1789776000`) early plus best-effort router NTP in the background
-  (WAN/UDP-123 may be blocked). Then `apk add e2fsprogs-extra` (no `mke2fs` in
+  (`date -u -s @1789776000`) early, then hands off to public NTP (the
+  best-effort router-NTP one-liner that used to sit next to it silently did
+  nothing; §6.10 replaces it). Then `apk add e2fsprogs-extra` (no `mke2fs` in
   base Alpine), `dropbear`, `screen`, `iw`, `wpa_supplicant` all work.
 * **`cp -ax /` did not copy the rootfs** the way busybox suggests; real dirs had
   to be copied explicitly (`cp -a /bin /etc /sbin /usr /lib /var /root /opt`).
@@ -434,6 +435,72 @@ as `/dev/<name>`, with **minor N == mmcblk0pN**. The map that matters:
   was replaced by **dropbear with password logins disabled** (`-s`), host keys
   auto-generated in `rc.local`, VM key in `/root/.ssh/authorized_keys`
   (commit `2f3f55f`). `tcp/2323` closed.
+
+### 5.4 Where the "full" eMMC actually was (2026-09-21)
+
+Root sat at 70 % used, which reads like a device that needs repartitioning. It
+did not. 7.63 GiB device, 21 partitions:
+
+| partition | node | mount | size | used |
+|---|---|---|---|---|
+| `data` | p21 | `/` | 3.3 G | 2.2 G → **510 M** |
+| `cache` | p3 | `/home` | 1.0 G | 304 K |
+| `system` | p18 | `/srv` | 1.2 G | 344 K |
+| `cus_config` | p20 | `/opt` | 487 M | 152 K |
+| — | — | unallocated tail | 184 M | — |
+
+`/root` was 1.7 G of that 2.2 G, and `/root` was two files: `armbian.img.gz` and
+`m302a.img.gz`, 920,114,868 bytes each, **identical sha256** (`dc2ab7e4…f4de`) —
+one Armbian image for m302a stored twice under two names, with a third copy
+already on the workstation (`~/tvbox/fw/armbian/…img.gz`, hash matched) and the
+original a public download. Both deleted, and root went to 16 %.
+
+The argument for deleting them is not tidiness. **A recovery image stored on the
+partition it would recover is not a backup** — it survives nothing that matters.
+So 1.75 G of the "full disk" was risk-free to remove, and the duplicate and the
+misconception went at the same moment. The backups that do count are off-device:
+`backup/` plus the USB stick (`boot`, `recovery`, `param`, `misc`, `env` images).
+
+The other 2.6 G was already mounted, already formatted, already empty — it had
+no job, which is the only reason it looked unavailable:
+
+```
+/opt/apk-cache    /var/cache/apk    none  bind  0 0    # apk stops growing /
+/home/log         /var/log          none  bind  0 0    # logs stop growing /
+/srv/media                                             # media root, ready
+```
+
+busybox `mount -a` accepts `bind`, and `inittab` runs it in `::sysinit:` before
+`rc.local`, so this is boot-persistent without adding a service. Verified live in
+`/proc/mounts` (`/dev/cus_config /var/cache/apk ext4`), and `apk update` still
+works through it.
+
+Two traps met on the way:
+
+* **`printf "%s\n" 'a\tb'` does not expand the escapes.** Only the *format
+  string* is escape-processed; `%s` arguments are literal. The tabs landed in
+  `/etc/fstab` as `\t` and busybox faithfully tried to mount a path containing
+  backslash-t. Write `printf 'a\tb\n'` instead.
+* **`mv` between filesystems is copy+unlink, and an unlinked file with an open
+  descriptor is not gone.** Moving `/var/log` out from under the running Xorg
+  left `/proc/2999/fd` holding `Xorg.start.log (deleted)` and
+  `Xorg.0.log (deleted)` on `/`, still growing there. Harmless, self-heals at
+  the next boot, but it means "did the space come back" must be asked of `df`,
+  not of `ls`.
+
+**Repartitioning: deliberately not done.** `data` is the last partition with
+184 M behind it, so merging means rewriting the partition table — and the
+backing store of the Amlogic name table is not visible from userspace. `/dev/env`
+holds no `parts=` string, so the BSP reads the layout from somewhere unidentified
+(this box's own cmdline carries no `parts=` either). Writing the wrong offset
+there is the single mistake that costs the box, and `env`/`bootloader`/`param`
+writes are §0 forbidden. 184 M is worth less than the cleanup that cost nothing.
+
+If more is ever needed, the next step is filesystem-level, not table-level:
+`vendor` (p16, 320 M), `odm` (p17, 128 M) and `product` (p19, 128 M) are Android
+payloads with Android deleted, so they are inert and can just be `mkfs`'d and
+mounted. `dtbo`, `boot`, `recovery`, `vbmeta` and `tee` are the boot/signing path
+and stay untouched.
 
 ---
 
@@ -629,29 +696,63 @@ writing, and don't trust the command's exit status.
 Both survived two cold boots unattended. `&mdash;` is not valid Pango; use
 literal characters.
 
-### 6.9 Clock and timezone on a box with no RTC battery
+### 6.9 Clock and timezone: `/etc/localtime` is necessary and not sufficient
 
-There is **no `tzdata`** on this box and musl **ignores `/etc/TZ`** (that is a
-uClibc convention), so the only correct mechanism is a real TZif file at
-`/etc/localtime`:
+musl **ignores `/etc/TZ`** (that is a uClibc convention), so a real TZif file at
+`/etc/localtime` is the base requirement:
 
 ```
 cp <zoneinfo>/Asia/Shanghai /etc/localtime     # -> CST +0800
 ```
 
-Verified three ways, because "the file exists" is not the same as "it works":
-`date` in a login shell, `date` inside the X session's own environment, and the
-panel clock. Setting a `TZ` environment variable would be *worse* than leaving
-it unset — an explicit `TZ` overrides `/etc/localtime` for that process, so a
-stray `TZ=UTC` inherited from somewhere pins it to UTC forever.
+The previous version of this section said that was the whole fix, and blamed
+any remaining wrongness on **GLib caching the timezone once per process** — the
+panel read UTC because `xfce4-panel` had started 40 s before the file existed.
+**That explanation is dead.** A cold boot put the panel's start time after both
+the file and a correct system clock, and it still read UTC. Restarting a
+component that disagrees with `date` tells you the disagreement survived a
+restart; it does not identify a cause, and I had written it up as if it did —
+the same failure mode as §7.7.8, a plausible mechanism asserted from a
+measurement too short and too easy to explain away.
 
-The trap here is **glibc/GLib caching the timezone once per process**. The panel
-clock kept reading UTC after `/etc/localtime` was in place, because
-`xfce4-panel` started about 40 s *earlier* and froze the old value. Nothing was
-misconfigured; the process was just older than the file. Fix is a restart of the
-session (or a boot, now that the file is persistent), not a config change. A
-plugin's own properties are worth ruling out first — XFCE's clock has a
-`timezone` property that would have survived any amount of restarting.
+What is actually established:
+
+* `/etc/localtime` drives **libc** consumers correctly — `date`, every shell,
+  coreutils. So every command-line check passes.
+* **`/usr/share/zoneinfo` did not exist on this box at all**, and a *named*
+  zone cannot be resolved without it. Measured, same instant, same
+  environment:
+
+  ```
+  date                     -> 23:19 CST     # reads /etc/localtime
+  TZ=Asia/Shanghai date    -> 15:19 UTC     # name, no zoneinfo -> SILENT UTC
+  TZ=CST-8 date            -> 23:19 CST     # POSIX string needs no file
+  ```
+
+  The silent part is the hazard: a zone name that cannot be resolved is
+  indistinguishable from a machine that genuinely wants UTC.
+* The XFCE clock (`plugin-12`) had **no `timezone` property at all**, so it was
+  taking some default path rather than an explicitly wrong value.
+
+The fix therefore covers both halves rather than betting on which one mattered:
+
+```
+apk add tzdata                    # 2026b, 1.6 MiB; makes names resolvable
+xfconf-query -c xfce4-panel -p /plugins/plugin-12/timezone \
+    -n -t string -s Asia/Shanghai # stop relying on a default
+```
+
+Both the read-back and the on-disk XML confirm the property stuck (xfconf
+flushes immediately, verified by `mtime` rather than by trusting the exit
+status), so it survives a hard power cut, not just a clean logout. **What is
+still open: nobody has looked at the screen yet.** Everything above is true
+about the files and about libc; the panel reading `23:2x` is the one claim
+awaiting eyes, and it should not be recorded as verified until then.
+
+Do **not** substitute a `TZ` environment variable. An explicit `TZ` overrides
+`/etc/localtime` for every process that inherits it, so a stray `TZ=UTC` pins a
+subtree to UTC — and on a box without zoneinfo, a stray `TZ=Asia/Shanghai` pins
+it to UTC too, while looking entirely deliberate.
 
 Boot-time NTP is §6.10.
 
@@ -1616,8 +1717,9 @@ root 执行我们的 `update-binary`**。
   - Android 会在每次开机把原厂 recovery 刷回 p6:`/system/etc/install-recovery.sh` +
     `/system/recovery-from-boot.p`,必须中和(前者改成 `exit 0` 桩,后者改名)。
   - `apk` 装不了任何东西:**没有 RTC 电池**,时钟每次回到 2020 → TLS
-    `certificate verify failed`。修:rc.local 开机先 `date -u -s` 设一个合理下限,再后台
-    试路由器 NTP(公网 UDP/123 可能被墙)。之后 `e2fsprogs-extra`(基础 Alpine 连
+    `certificate verify failed`。修:rc.local 开机先 `date -u -s` 设一个合理下限,再交给
+    公网 NTP(原来挨着它的那行"后台试路由器 NTP"是静默空转的,见 §6.10 对
+    `ntpd -q` 退出码的分析)。之后 `e2fsprogs-extra`(基础 Alpine 连
     `mke2fs` 都没有)、`dropbear`、`screen`、`iw`、`wpa_supplicant` 全通。
   - busybox 的 `cp -ax /` **并不能**按预期递归,必须逐个目录 `cp -a`。
   - **没有 scp**:Alpine 的 dropbear 不带 `sftp-server`
@@ -1629,6 +1731,38 @@ root 执行我们的 `update-binary`**。
   - 早期用明文 `busybox nc -lk -p 2323 -e /bin/sh` 当 root shell,后来换成
     **禁用口令登录的 dropbear**(`-s`),host key 在 rc.local 里缺失时自动生成,
     公钥放 `/root/.ssh/authorized_keys`,2323 端口关闭(commit `2f3f55f`)。
+* **eMMC"装满了"其实装在哪(2026-09-21)**:根分区 70% 看着像要重划表,其实不是。
+  7.63 GiB / 21 分区:`data`=p21→`/` 3.3G、`cache`=p3→`/home` 1.0G、
+  `system`=p18→`/srv` 1.2G、`cus_config`=p20→`/opt` 487M,盘尾还剩 184M 未分配。
+  后三个**挂好了、格好了、空的**,只是没派活。而 `/root` 独占 1.7G,内容是两个文件:
+  `armbian.img.gz` 和 `m302a.img.gz`,各 920,114,868 字节、**sha256 完全相同**
+  (`dc2ab7e4…f4de`)——同一个 m302a Armbian 镜像存了两份、起两个名,工作站上还有第三份
+  (哈希已核),原始文件本就是公开下载。两份都删,根立刻降到 16%。
+  真正的理由不是整洁:**把恢复镜像存在它要恢复的那个分区里不叫备份**,它挡不住任何
+  要紧的事。要紧的备份在设备之外:`backup/` 加 U 盘(`boot`/`recovery`/`param`/
+  `misc`/`env` 镜像)。派活:
+
+  ```
+  /opt/apk-cache    /var/cache/apk    none  bind  0 0    # apk 不再撑根分区
+  /home/log         /var/log          none  bind  0 0    # 日志不再撑根分区
+  /srv/media                                             # 媒体目录先备好
+  ```
+
+  busybox `mount -a` 认 `bind`,而 inittab 的 `::sysinit:` 在 `rc.local` 之前跑它,
+  所以不用新增任何服务就开机生效;`/proc/mounts` 已核,`apk update` 走绑定目录正常。
+  两个当场踩到的坑:**`printf "%s\n" 'a\tb'` 不展开转义**——只有*格式串*会展开,
+  `%s` 参数是字面量,于是 tab 以 `\t` 原文进了 `/etc/fstab`,busybox 老老实实去挂一个
+  含反斜杠 t 的路径;写 `printf 'a\tb\n'`。**跨文件系统 `mv` 是 copy+unlink,而
+  句柄还开着的文件unlink 完并不算删掉**——把 `/var/log` 从运行中的 Xorg 底下搬走,
+  `/proc/2999/fd` 里仍然攥着 `Xorg.start.log (deleted)`,老文件还在根上长。无害,
+  下次开机自愈,但"空间回来了吗"必须问 `df`,不能问 `ls`。
+  **重划分区表是故意不做的**:`data` 是最后一个分区,后面只有 184M,合并就得改分区表;
+  而 Amlogic 名字表的存放处从用户态找不到(`/dev/env` 里没有 `parts=` 串,本机
+  cmdline 里也没有),写错一个偏移就是丢这台机器的那一错,且 §0 明令禁止动
+  `env`/`bootloader`/`param`。184M 不值一次免费清理的钱。真嫌不够,下一步是分区表
+  *之下*的:`vendor`(p16,320M)、`odm`(p17,128M)、`product`(p19,128M)是 Android
+  已被删后的载荷,直接 `mkfs` 挂上就行;`dtbo`/`boot`/`recovery`/`vbmeta`/`tee`
+  属于启动与签名链,不碰。
 
 ## 6. 内置 WiFi
 
@@ -1709,14 +1843,25 @@ root 执行我们的 `update-binary`**。
   写 `/panels/panel-N/plugin-ids` 数组时 `--force-array` 不加类型会报
   "12 new values, but only 11 types",而且**写坏了面板不报错、继续显示旧列表**,
   所以写完必须读回校验,别信退出码。两次冷启动均已自动生效。
-* **时区:本机没有 tzdata,而 musl 根本不读 `/etc/TZ`**(那是 uClibc 的规矩),
-  所以唯一正确的做法是把真正的 TZif 文件放到 `/etc/localtime`
-  (`Asia/Shanghai` → `CST +0800`)。三处分别验证:登录 shell、X 会话自己的环境、
-  面板时钟。**不要**为了保险再导一个 `TZ` 变量——显式 `TZ` 会覆盖 `/etc/localtime`,
-  一个残留的 `TZ=UTC` 能把进程永远钉在 UTC。真正的坑是 **GLib 每进程只缓存一次
-  时区**:文件写好后面板时钟仍然读 UTC,因为 `xfce4-panel` 比文件早生了 40 秒——
-  配置没错,是进程比文件老。重启会话即可(文件已持久,以后开机自然正确)。
-  顺手先排除插件自己的 `timezone` 属性,XFCE 时钟确实有这个配置项。
+* **时区:`/etc/localtime` 必要但不充分(2026-09-21 修正)**。musl 不读
+  `/etc/TZ`(那是 uClibc 的规矩),所以先把真正的 TZif 放到 `/etc/localtime`
+  (`Asia/Shanghai` → `CST +0800`)——这一步只管 **libc**(`date`、shell、coreutils),
+  它们一直是对的。**上一版把剩下的问题归给"GLib 每进程缓存时区"说是面板比文件早生
+  40 秒,这个解释已经死了**:冷启动后面板晚于文件和正确时钟启动,仍然读 UTC。重启一个
+  和 `date` 不一致的组件,只证明"重启没解决",不指明原因——和 §7.7.8 是同一个错误。
+  确定的事实是:本机**根本没有 `/usr/share/zoneinfo`**,而带名字的时区必须靠它解析。
+  同一时刻同一环境实测:`date` → `23:19 CST`;`TZ=Asia/Shanghai date` →
+  `15:19 UTC`(**名字解析不了会静默变 UTC**,这才是最阴的地方:它和"这台机器就想用
+  UTC"长得一模一样);`TZ=CST-8 date` → `23:19 CST`(POSIX 串不需要文件)。
+  XFCE 时钟是 plugin-12,它原本**没有** `timezone` 属性,走的是某条默认路径。
+  所以修复两头都下,不赌哪一个才是主因:`apk add tzdata`(2026b,1.6 MiB)让名字能解析,
+  再 `xfconf-query -c xfce4-panel -p /plugins/plugin-12/timezone -n -t string -s Asia/Shanghai`
+  不再依赖默认值。属性写后读回、XML 的 mtime 都确认落盘(硬断电也在),退出码不作数。
+  **仍未确认的:还没有人眼看面板。**上面全是对文件和 libc 为真,面板显示 `23:2x`
+  是唯一等眼睛验证的一条,在那之前不许写成"已验证"。
+  别拿 `TZ` 环境变量当替身:显式 `TZ` 会覆盖 `/etc/localtime`,残留的 `TZ=UTC` 会把
+  一整棵进程树钉在 UTC;而没装 tzdata 时残留的 `TZ=Asia/Shanghai` 同样钉在 UTC,
+  还看起来完全像是故意的。
 * **开机对时 `time-up.sh`**:`rc.local` 先设一个 floor 时间保证 TLS/apk 可用,再交给
   它对**公网** NTP(`ntp.aliyun.com` → `cn.pool.ntp.org` → `pool.ntp.org`)重试
   (前 2 分钟每 5 秒、之后到 6 分钟每 30 秒),**只在验证通过后才写 RTC**。冷启动
