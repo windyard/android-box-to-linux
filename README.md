@@ -548,6 +548,97 @@ power-cycles exercised — with the current storage, timezone, `time-up.sh` and
 1080p60 stack combined for the first time, **a true unplug-and-return test is
 outstanding** (§9).
 
+### 5.6 Memory: ~1 GB, and swap only as of 2026-09-22
+
+`MemTotal: 1013068 kB` — **989 MiB**, 4 cores, armv7l with VFP/NEON. §7.7 has
+said 989 MB throughout, but the figure I kept repeating *in conversation*
+had come from the product page and was never measured. It had also got itself
+into a design justification, in a comment that survives in git: "neither
+[chrony/openntpd] is worth a standing daemon on **512 MB**". Half the true
+capacity, quoted as the reason for an architectural choice. Corrected at
+`stage/time-up.sh`, and worth keeping as an example of how a number that is
+wrong is different from a number that is merely approximate: the real reason not
+to run a time daemon here is not memory at all — it is that busybox init gives
+it nothing to be supervised *by*, and one-shot + verify already does the job.
+The 512 MB excuse let me skip making that argument.
+
+**There was no swap at all.** `/proc/swaps` empty, `free -m` → `Swap: 0`. On a
+1 GB box that means a memory spike has exactly two outcomes: succeed, or be OOM-killed.
+`/dev/zram0` was already there (block 252,0) with `disksize=0` — shipped present
+and switched off — and zram is compiled in, not a module (`grep -c zram
+/proc/modules` → 0, while `/sys/class/zram-control/hot_add` exists), so enabling
+it is a few writes with no package and **no eMMC wear**, which matters on this
+device more than on disk-based ones.
+
+`stage/rc.local` (deployed as `/etc/rc.local`) now brings it up before anything
+that could need memory:
+
+```sh
+if grep -q '^/dev/zram0' /proc/swaps 2>/dev/null; then
+    echo "zram0: swap already active" > /dev/kmsg
+elif echo $((256 * 1024 * 1024)) > /sys/block/zram0/disksize 2>/dev/null \
+        && mkswap /dev/zram0 >/dev/null 2>&1 \
+        && swapon /dev/zram0 >/dev/null 2>&1; then
+    echo "zram0: 256M swap on" > /dev/kmsg
+else
+    echo "zram0: swap setup FAILED" > /dev/kmsg
+fi
+```
+
+256 MiB, not 1 GiB, on purpose. `disksize` is a ceiling on addresses, not an
+allocation — pages cost real RAM only once something is paged into them — but
+zram *is* RAM, so a swap device larger than the memory it lives in does not
+prevent an OOM, it converts one into a hang. Algorithm is the kernel default
+`[lzo]` (`deflate` also offered).
+
+The branch is on the **outcome** — is swap active? — and logs which of the three
+happened, because a setup line that silently fails is the recurring failure mode
+of this entire bring-up. What is and is not established:
+
+* proven on the live box: `disksize` accepts the write, `mkswap` + `swapon`
+  succeed, kernel logs `Adding 262140k swap on /dev/zram0`, `free -m` reports
+  `Swap: 255`;
+* proven by extracting the installed block out of `/etc/rc.local` and running
+  it twice — once as-is against live swap (took the "already active" branch, so
+  a manual re-run cannot mkswap over a mounted swap), once with every `zram0`
+  rewritten to a nonexistent `zram9` (took the `FAILED` branch) — i.e. the code
+  that ships is the code that was tested;
+* **not** proven: that pages actually migrate under pressure. `io_stat` reads
+  `0 0 0 0` — no swap I/O has happened, so I have no compression ratio from
+  this device either, and `mm_stat`'s `4096 78 12288` is setup metadata, not a
+  sample. Getting real numbers means deliberately exhausting 989 MiB on a box
+  with a live X session, where being wrong is an OOM kill;
+* **not** proven: the boot path. That needs a reboot, i.e. a human ask (§0).
+
+### 5.7 Can it run Node.js?
+
+Asked on 2026-09-22, answered from the package indexes rather than from the
+web. Getting those numbers right required fixing a measurement error first:
+`apk search --repository <v3.2x/main> nodejs` returned the *same* version for
+3.20, 3.21, 3.22 and 3.23 while
+warning that the indexes could not be opened — it was answering from the cached
+3.20 index and reporting success. Redone by fetching each `APKINDEX.tar.gz` with
+wget and asserting HTTP 200:
+
+| Alpine (armhf) | `nodejs` | notes |
+| --- | --- | --- |
+| 3.20 — *this box* | 20.15.1-r0 (36 MiB) | `npm-10.9.1-r0` +14 MiB; `nodejs-current` 21.7.3-r0 |
+| 3.21 / 3.22 | 22.23.2 | |
+| 3.23 | 24.18.1 | latest at time of writing |
+
+So the box's own branch ships Node 20, which is past end-of-life (April 2026).
+"Bolt Node 24 onto 3.20" was tested with a simulation, not guessed at, and
+rejected: **23 transactions**, including `icu` 74→76, `harfbuzz` 8.5.0→12.2.0,
+`webkit2gtk`, `gst-plugins-base`, `vte3` — and *purging* `ffmpeg-libavcodec`.
+That is a partial distro upgrade in a `nodejs` costume, and it would take the
+video stack with it.
+
+Honest summary: the hardware is not the obstacle — 4× armv7l with NEON and now
+989 MiB + zram runs Node fine. The obstacle is that a supported Node means
+Alpine 3.23, which means the upgrade project, which should be gated on a real
+rootfs backup first (and §5.4 has already established that the "recovery image"
+sitting on this box's own storage is not one).
+
 ---
 
 ## 6. Built-in WiFi
@@ -1576,6 +1667,14 @@ payload was deliberately erased; no full system/vendor backup exists).
    `parts/`, `inis/`. Nothing left to do here.
 5. Optional: Bluetooth on the same UWE5623 combo (`sprdbt_tty.ko`, carved,
    untested).
+6. **zram swap (§5.6) is live but UNVERIFIED AT BOOT.** `rc.local` now sets it
+   up, and both the "already active" and "FAILED" branches were exercised by
+   running the installed block by hand; the cold path — fresh kernel,
+   `disksize=0`, nothing active — has not been, because that needs a reboot and
+   reboots are a human call (§0). Also outstanding: `io_stat` is `0 0 0 0`, so
+   no page has ever been swapped and the 256 MiB ceiling is still an untested
+   assumption rather than a measured fit. Next time the box reboots anyway,
+   check `cat /proc/swaps` and `dmesg | grep zram0`.
 
 ---
 
@@ -1841,6 +1940,60 @@ root 执行我们的 `update-binary`**。
   全都跳过,而且 `data` 被干净卸载、没有回放。也就是说"断电再上电仍能自救"这条
   §0 底线,在存储绑定 + tzdata 时区 + `time-up.sh` + 1080p60 这套组合同时生效之后
   **还没重做过**,仍然挂着(见 §9)。
+* **内存:其实是 ~1GB,而 swap 是 2026-09-22 才有的**。`MemTotal: 1013068 kB`
+  = **989 MiB**,4 核,armv7l 带 VFP/NEON。§7.7 一直写的是 989 MB,但我在**对话里**
+  反复说的那个数来自商品页、从来没量过,而且已经混进了一个设计理由里:
+  "……不值得为它在 **512 MB** 上跑常驻守护进程"(chrony/openntpd)。真实容量的一半,
+  被当作架构选择的理由。已在 `stage/time-up.sh` 改掉,但值得留档:**说错的数和差不多
+  的数不是一回事**。这台机器上不跑时间守护进程的真正理由根本不是内存,而是 busybox
+  init 没有东西去监管它,而"一次性 + 校验"已经够用。512 MB 这个借口让我省掉了论证。
+  **此前完全没有 swap**:`/proc/swaps` 空,`free -m` 里 `Swap: 0`。1GB 的机器上没有
+  swap 意味着内存尖峰只有两种结局:扛过去,或者被 OOM 杀掉。`/dev/zram0` 本来就在
+  (块设备 252,0)但 `disksize=0`——出厂给了设备却没开;而 zram 是**内建的**,不是模块
+  (`grep -c zram /proc/modules` = 0,同时 `/sys/class/zram-control/hot_add` 存在),
+  所以开启它只是几次写入,不装包,而且**不磨损 eMMC**——在这台机器上这条比在硬盘上重要。
+  现在 `stage/rc.local`(部署为 `/etc/rc.local`)在所有吃内存的东西之前把它拉起来:
+
+  ```sh
+  if grep -q '^/dev/zram0' /proc/swaps 2>/dev/null; then
+      echo "zram0: swap already active" > /dev/kmsg
+  elif echo $((256 * 1024 * 1024)) > /sys/block/zram0/disksize 2>/dev/null \
+          && mkswap /dev/zram0 >/dev/null 2>&1 \
+          && swapon /dev/zram0 >/dev/null 2>&1; then
+      echo "zram0: 256M swap on" > /dev/kmsg
+  else
+      echo "zram0: swap setup FAILED" > /dev/kmsg
+  fi
+  ```
+
+  故意是 256 MiB 而不是 1 GiB:`disksize` 是**地址上限**不是预分配,页真正占用的 RAM
+  只在实际换入之后才产生;但 zram 本身就是 RAM,所以一个比它所寄居的内存还大的 swap
+  设备并不能防止 OOM,只会把 OOM 变成卡死。压缩算法用内核默认 `[lzo]`(另有
+  `deflate`)。判断分支看的是**结果**(swap 到底活没活)并打印三种结局之一,因为
+  "静默失败的启动设置行"是这次整场折腾里反复出现的失败模式。已经确立的和没确立的:
+  * 真机上已证明:`disksize` 接受写入,`mkswap` + `swapon` 成功,内核记
+    `Adding 262140k swap on /dev/zram0`,`free -m` 报 `Swap: 255`;
+  * 把 `/etc/rc.local` 里那段安装好的原样抽出来跑两遍,已证明——一遍原样对着活动
+    swap(走 "already active" 分支,所以手工重跑不可能在已挂载的 swap 上 mkswap),
+    一遍把 `zram0` 全替换成不存在的 `zram9`(走 `FAILED` 分支)。也就是说**上线的代码
+    就是被测过的代码**;
+  * **没**证明:压力下页是否真的搬得进去。`io_stat` 是 `0 0 0 0`,一次换页都没发生,
+    所以这台设备我没有压缩率,`mm_stat` 的 `4096 78 12288` 是建立时的元数据、不是样本。
+    要拿到真实数字就得在跑着 X 的机器上故意耗尽 989 MiB,错的代价是 OOM 杀进程,不试;
+  * **没**证明:开机路径。那需要重启,而重启必须由人提(§0)。
+* **能跑 Node.js 吗?(2026-09-22 实测,答案来自索引而不是网页)** 先修一个测量错误:
+  `apk search --repository …/v3.2x/main nodejs` 对 3.20/3.21/3.22/3.23 返回**同一个**
+  版本,同时还警告索引打不开——它其实在用缓存的 3.20 索引作答并且报成功。改成 wget 逐个
+  抓 `APKINDEX.tar.gz` 并断言 HTTP 200,armhf 真实梯度是:3.20 → `nodejs 20.15.1-r0`
+  (36 MiB,`npm-10.9.1-r0` 再 +14 MiB;`nodejs-current` 21.7.3-r0);3.21/3.22 →
+  22.23.2;3.23 → 24.18.1。也就是本机分支只有 **Node 20,已过 EOL(2026 年 4 月)**。
+  "把 Node 24 硬装到 3.20"是模拟出来的、不是猜的,并且被否掉:**23 个事务**,含 `icu`
+  74→76、`harfbuzz` 8.5.0→12.2.0、`webkit2gtk`、`gst-plugins-base`、`vte3`,还会
+  **purge `ffmpeg-libavcodec`**。那是一次穿了 `nodejs` 外套的部分发行版升级,还会顺手
+  带走视频栈。老实结论:硬件不是障碍——4×armv7l + NEON,如今又有 989 MiB + zram,跑
+  Node 没问题;障碍在于"有人支持的 Node"等于 Alpine 3.23,等于那次升级工程,而它应该
+  先被一个**真正的 rootfs 备份**卡住(§5.4 已经证明:放在本机存储上的那份"recovery
+  镜像"不算备份)。
 
 ## 6. 内置 WiFi
 
@@ -2534,6 +2687,12 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    `*pass*`、`*.pem`(除 `keys/`)、`*.pcap`、`*.log`、`fw/`、`backup/`、`parts/`、
    `inis/`。这一项没有遗留。
 5. 可选:同一颗 UWE5623  combo 上的蓝牙(`sprdbt_tty.ko`,已雕出,未测)。
+6. **zram swap(见 §5.6)已经开起来,但开机路径未验证**。`rc.local` 现在会建立它,
+   "already active" 和 "FAILED" 两个分支都是把装好的那段抽出来手工跑出来的;冷路径——
+   全新内核、`disksize=0`、没有任何 swap——还没走过,因为那要重启,而重启必须由人提
+   (§0)。同时挂着的还有:`io_stat` 是 `0 0 0 0`,从没换出过页,所以 256 MiB 这个上限
+   目前是假设、不是实测出来的合身。下次机器反正要重启时,顺手看
+   `cat /proc/swaps` 和 `dmesg | grep zram0`。
 
 ---
 

@@ -7,6 +7,27 @@ ifup eth0 2>/dev/null || {
     ip link set eth0 up 2>/dev/null
     ip route add default via 192.0.2.1 2>/dev/null
 }
+# zram: 256 MiB of RAM-backed swap.  The BSP ships /dev/zram0 with disksize=0,
+# i.e. present but unconfigured, and zram is compiled in (there is a
+# /sys/class/zram-control hot_add interface and no module to load), so this is
+# three writes and no eMMC wear.  disksize is a ceiling, not an allocation: the
+# pages cost real RAM only once something is swapped into them.  The ceiling is
+# deliberately far below the 989 MiB this box has - a swap device larger than
+# physical memory does not prevent an OOM, it just converts it into a hang.
+#
+# Branch on the outcome (is swap active?) rather than on the setting, and say
+# which happened: an assignment that silently no-ops is the failure mode this
+# whole bring-up keeps running into.  Takes the first branch on a manual
+# re-run, which is the only reason the guard exists.
+if grep -q '^/dev/zram0' /proc/swaps 2>/dev/null; then
+    echo "zram0: swap already active" > /dev/kmsg
+elif echo $((256 * 1024 * 1024)) > /sys/block/zram0/disksize 2>/dev/null \
+        && mkswap /dev/zram0 >/dev/null 2>&1 \
+        && swapon /dev/zram0 >/dev/null 2>&1; then
+    echo "zram0: 256M swap on" > /dev/kmsg
+else
+    echo "zram0: swap setup FAILED" > /dev/kmsg
+fi
 # No RTC battery: the clock comes up at whatever the RTC last held, so seed a
 # known-valid floor (2026-09-19) first.  This is what makes TLS and apk cert
 # checks work in the window before NTP lands; it is ~2 days behind real time.
