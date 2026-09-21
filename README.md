@@ -608,7 +608,21 @@ of this entire bring-up. What is and is not established:
   this device either, and `mm_stat`'s `4096 78 12288` is setup metadata, not a
   sample. Getting real numbers means deliberately exhausting 989 MiB on a box
   with a live X session, where being wrong is an OOM kill;
-* **not** proven: the boot path. That needs a reboot, i.e. a human ask (§0).
+* **now proven at boot**, by the reboot on 2026-09-22 (new `boot_id`,
+  `/proc/swaps` = `/dev/zram0 262140` with nothing having touched it since
+  init): `rc.local`'s setup block runs unattended and the ceiling is honoured.
+  Note this was a **warm** reboot through init — which is precisely what
+  exercises `rc.local`, so it is the right test for this. The §0 power-cycle
+  remains a different thing, and is still outstanding.
+
+One thing that boot taught me, because it nearly read as a failure: `dmesg |
+grep zram0` returns **nothing** on a box that has just set zram up correctly.
+§5.5 already records that this kernel's ring buffer begins around 4.9 s, and
+`rc.local` enables swap during the network bring-up — comfortably before that —
+so both the script's own `> /dev/kmsg` report and the kernel's `Adding
+262140k swap` line were written into the region that gets discarded. The absence
+carries no information either way; `/proc/swaps` is the check that works. Assert
+on the outcome, not on the log.
 
 ### 5.7 Can it run Node.js?
 
@@ -1447,9 +1461,9 @@ caused rather than boot-caused. **Sample for longer than the period you are
 looking for, or don't call it a measurement.**
 
 `display-up.sh` now carries a 180-second boot-window HPD observer for exactly
-this reason, logging to `/var/log/hpd-boot.log`. **Five boots are on record, all
-at 1080p60: three produced a single drop at t≈4–5 s and two produced none — and
-no boot has ever dropped after 5 s**, so 900 samples contain nothing in their
+this reason, logging to `/var/log/hpd-boot.log`. **Six boots are on record, all
+at 1080p60: three produced a single drop at t≈4–5 s and three produced none — and
+no boot has ever dropped after 5 s**, so 1080 samples contain nothing in their
 last 175 s. The drop is *consistent with* the recipe's own `display/mode` write
 and no more than that: the same write ran twice without moving the link, which is
 what the earlier "it is expected, because programming a display replugs it"
@@ -1506,11 +1520,11 @@ full-size). The cold power-cycle that §9 used to list as outstanding **has been
 done**, twice since, and the input-chain fixes held (`HOME=/root`, udevd before
 Xorg, `autosuspend=-1` all read back correct). Boot-window HPD is now measured
 rather than inferred: `/var/log/hpd-boot.log` samples `hpd_state` every second
-for 180 s from inside `display-up.sh`. **Five boots are on record: three gave a
-single drop at t≈4–5 s, two gave `drops=0`, and no boot has ever dropped after
-5 s** — 900 samples with nothing in the last 175 s of every window. The drop is
+for 180 s from inside `display-up.sh`. **Six boots are on record: three gave a
+single drop at t≈4–5 s, three gave `drops=0`, and no boot has ever dropped after
+5 s** — 1080 samples with nothing in the last 175 s of every window. The drop is
 therefore *consistent with* the recipe's own mode write rather than proven by it,
-since two boots ran the same write and stayed clean. The load-bearing sentence is
+since three boots ran the same write and stayed clean. The load-bearing sentence is
 the second half: whatever the box does at boot, it does inside five seconds and
 then holds 1080p60 for the rest of the window. Network, WiFi, display and clock
 all come up unattended.
@@ -1635,7 +1649,7 @@ payload was deliberately erased; no full system/vendor backup exists).
      every axis *after* its own mode write, in one pass.
    * the real open question is *why* the boot pass flapped at all. It stopped
      flapping once the link was re-established by hand, and has not reappeared
-     in the five sampled boots since — so that is unreproduced, not explained. If
+     in the six sampled boots since — so that is unreproduced, not explained. If
      "no signal" ever returns after a cold boot, re-run `display-up.sh` once
      and read `/var/log/hpd-boot.log` **before** changing the mode.
    Still open: a native logout dialog would need elogind + a D-Bus system bus
@@ -1667,14 +1681,15 @@ payload was deliberately erased; no full system/vendor backup exists).
    `parts/`, `inis/`. Nothing left to do here.
 5. Optional: Bluetooth on the same UWE5623 combo (`sprdbt_tty.ko`, carved,
    untested).
-6. **zram swap (§5.6) is live but UNVERIFIED AT BOOT.** `rc.local` now sets it
-   up, and both the "already active" and "FAILED" branches were exercised by
-   running the installed block by hand; the cold path — fresh kernel,
-   `disksize=0`, nothing active — has not been, because that needs a reboot and
-   reboots are a human call (§0). Also outstanding: `io_stat` is `0 0 0 0`, so
-   no page has ever been swapped and the 256 MiB ceiling is still an untested
-   assumption rather than a measured fit. Next time the box reboots anyway,
-   check `cat /proc/swaps` and `dmesg | grep zram0`.
+6. **zram swap (§5.6): boot path VERIFIED 2026-09-22.** `rc.local` brings it up
+   unattended — a reboot with a new `boot_id` left `/dev/zram0` at 262140k in
+   `/proc/swaps`, with the "already active" and `FAILED` branches also having
+   been exercised by running the installed block by hand. Do **not** look for it
+   in `dmesg`: the setup happens before this box's ring buffer begins (~4.9 s),
+   so the lines exist and are then discarded. Still outstanding: `io_stat` is
+   `0 0 0 0`, i.e. no page has ever been swapped, so the 256 MiB ceiling remains
+   an assumption rather than a measured fit — finding that out needs memory
+   pressure this box should not be subjected to casually.
 
 ---
 
@@ -1980,7 +1995,15 @@ root 执行我们的 `update-binary`**。
   * **没**证明:压力下页是否真的搬得进去。`io_stat` 是 `0 0 0 0`,一次换页都没发生,
     所以这台设备我没有压缩率,`mm_stat` 的 `4096 78 12288` 是建立时的元数据、不是样本。
     要拿到真实数字就得在跑着 X 的机器上故意耗尽 989 MiB,错的代价是 OOM 杀进程,不试;
-  * **没**证明:开机路径。那需要重启,而重启必须由人提(§0)。
+  * **开机路径现已证明**:2026-09-22 那次重启(`boot_id` 变了,`/proc/swaps` 里
+    `/dev/zram0 262140`,init 之后再没人碰过它)说明 `rc.local` 那段确实无人干预地跑
+    了、上限也照收。注意这是**经 init 的热重启**——而这正是考验 `rc.local` 的那种重启,
+    所以测对了东西。§0 说的断电再上电是另一回事,仍然挂着。
+    这次重启还顺带教我一件事:**在一台刚把 zram 设好的机器上 `dmesg | grep zram0`
+    是空的**。§5.5 早写过本机环形缓冲从 ~4.9 秒才开始,而 `rc.local` 是在网络拉起
+    阶段就启用 swap 的——远早于那 4.9 秒——所以脚本自己 `> /dev/kmsg` 的那行和内核
+    `Adding 262140k swap` 那行,都写进了会被丢掉的区域。因此"日志里没有"**正反两面
+    都不说明问题**,能用的检查是 `/proc/swaps`。要断言结果,不要断言日志。
 * **能跑 Node.js 吗?(2026-09-22 实测,答案来自索引而不是网页)** 先修一个测量错误:
   `apk search --repository …/v3.2x/main nodejs` 对 3.20/3.21/3.22/3.23 返回**同一个**
   版本,同时还警告索引打不开——它其实在用缓存的 3.20 索引作答并且报成功。改成 wget 逐个
@@ -2523,10 +2546,10 @@ ConsoleKit / seatd**,所以 XFCE 自带退出对话框里的重启/关机按钮�
 而不是归因于开机过程,归错了。**采样长度必须大于你要找的那个周期,否则别把它叫作实测。**
 
 `display-up.sh` 现在内置了一个 180 秒的开机窗口采样器,正是为了这个原因,结果写到
-`/var/log/hpd-boot.log`。至今 **5 次开机(都是 1080p60):3 次在 t≈4–5 秒掉一次、
-2 次整窗 drops=0,而 5 次里没有一次是在 5 秒之后掉的**——每个窗口的后 175 秒都是干净的。
+`/var/log/hpd-boot.log`。至今 **6 次开机(都是 1080p60):3 次在 t≈4–5 秒掉一次、
+3 次整窗 drops=0,而 6 次里没有一次是在 5 秒之后掉的**——每个窗口的后 175 秒都是干净的。
 那一次掉落正好落在配方自己写 `display/mode` 的时刻,但**不能据此断定因果**:同样的写法
-有两次根本没掉,所以只能说"与之相符"。承重的是后半句:这台机器开机阶段搞出的动静都发生在
+有三次根本没掉,所以只能说"与之相符"。承重的是后半句:这台机器开机阶段搞出的动静都发生在
 头五秒内,之后整窗稳住。所以 1080p60 现在是有数据支撑的,而不是靠 12 秒的运气。
 
 仍然能区分问题的诊断手段(路径是 `/sys/class/amhdmitx/amhdmitx0/`——类名是
@@ -2568,7 +2591,7 @@ genmon 里的 WiFi 状态条)以 16 bpp 活在 fb0 上,**`1080p60hz` / 1920×108
 脚本拉起;肉眼确认画面稳定、四边不裁。此前挂着的**再冷拔电一次已经做完并通过**(之后
 又做了两次),三个输入链修复(`HOME=/root`、Xorg 前起 eudev、`autosuspend=-1`)开机读数
 全部正确。开机窗口的 HPD 现在是**测出来的**而不是推断的:`display-up.sh` 内部有个 180
-秒采样器写 `/var/log/hpd-boot.log`,累计 5 次开机:**3 次 t≈4–5 秒掉一次、2 次整窗
+秒采样器写 `/var/log/hpd-boot.log`,累计 6 次开机:**3 次 t≈4–5 秒掉一次、3 次整窗
 drops=0,但没有一次在 5 秒之后掉**。热重启与冷重启都全自动跑通,有线/无线/时钟照常起来。
 `/etc/fstab` 里新增的两条 bind(`/var/cache/apk`→`/opt`、`/var/log`→`/home`)也已确认
 是**开机自动生效**而不是手工挂上去的:重启后两条都在 `/proc/mounts` 里,而之前
@@ -2687,12 +2710,12 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    `*pass*`、`*.pem`(除 `keys/`)、`*.pcap`、`*.log`、`fw/`、`backup/`、`parts/`、
    `inis/`。这一项没有遗留。
 5. 可选:同一颗 UWE5623  combo 上的蓝牙(`sprdbt_tty.ko`,已雕出,未测)。
-6. **zram swap(见 §5.6)已经开起来,但开机路径未验证**。`rc.local` 现在会建立它,
-   "already active" 和 "FAILED" 两个分支都是把装好的那段抽出来手工跑出来的;冷路径——
-   全新内核、`disksize=0`、没有任何 swap——还没走过,因为那要重启,而重启必须由人提
-   (§0)。同时挂着的还有:`io_stat` 是 `0 0 0 0`,从没换出过页,所以 256 MiB 这个上限
-   目前是假设、不是实测出来的合身。下次机器反正要重启时,顺手看
-   `cat /proc/swaps` 和 `dmesg | grep zram0`。
+6. **zram swap(见 §5.6):开机路径已于 2026-09-22 验证**。重启一次(`boot_id` 变了)
+   之后 `/proc/swaps` 里就是 `/dev/zram0 262140`,没人手工干预;"already active" 和
+   "FAILED" 两个分支也已用装好的那段原样跑过。**别去 `dmesg` 里找它**:设置动作发生在本机
+   环形缓冲起点(~4.9 秒)之前,那两行写了又被丢掉,读不到不等于没发生。仍然挂着的是:
+   `io_stat` 还是 `0 0 0 0`,一个页都没换出过,所以 256 MiB 这个上限依旧只是假设;要知道
+   合不合身就得制造内存压力,而这不是该随手做的事。
 
 ---
 
