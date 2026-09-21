@@ -22,7 +22,11 @@
 # the step is then confirmed by a second -w whose offset must be small.
 #
 # sntp / ntpdate / ntpclient are not installed; chrony or openntpd would give a
-# real exit status, but neither is worth a standing daemon on 512 MB.
+# real exit status, but a resident time daemon buys nothing here beyond what
+# this script already does, and there is no runlevel system to supervise it
+# (busybox init only).  Note this is a design call, not a memory constraint:
+# this box has ~1 GB (MemTotal 1013068 kB), not the 512 MB I had been quoting
+# from the spec sheet.
 #
 # Safe to run by hand any time.  Exits 0 on verified sync, 1 if it never got
 # there.  The log is stamped with seconds-since-boot rather than with the
