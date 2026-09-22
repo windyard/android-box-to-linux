@@ -641,7 +641,8 @@ web. Getting those numbers right required fixing a measurement error first:
 3.20, 3.21, 3.22 and 3.23 while
 warning that the indexes could not be opened — it was answering from the cached
 3.20 index and reporting success. Redone by fetching each `APKINDEX.tar.gz` with
-wget and asserting HTTP 200:
+wget — and checking the *content* names the branch, not just that the fetch
+succeeded (the `nodejs` entry reads `20.15.1-r0`, so the index really is 3.20):
 
 | Alpine (armhf) | `nodejs` | notes |
 | --- | --- | --- |
@@ -661,6 +662,80 @@ Honest summary: the hardware is not the obstacle — 4× armv7l with NEON and no
 Alpine 3.23, which means the upgrade project, which should be gated on a real
 rootfs backup first (and §5.4 has already established that the "recovery image"
 sitting on this box's own storage is not one).
+
+### 5.8 Watching the box's own screen from another machine (x11vnc over SSH)
+
+Started as "can KRDC connect to it". It cannot yet, and the reason is not KRDC.
+
+**Client side, measured** (KDE Gear `krdc 26.08.0`): the VNC view is there
+(`krdc_vncplugin.so` + `libvncclient 0.9.15`), and more usefully KRDC has
+**built-in SSH tunneling** — `SshTunnelThread`, a "Connect via SSH tunnel" option,
+and libssh's `ssh_channel_open_forward`. That is what lets the box expose nothing
+new. (Its RDP plugin would need `freerdp`, not installed — moot, since the box
+runs no RDP server either.)
+
+**Server side, measured**: one listener, `0.0.0.0:22 dropbear`, started
+`-s -p 22` — key-only auth, and **without `-j`/`-k`**, so local and remote
+forwarding are both permitted. That is the whole route.
+
+Choosing the server was a simulation, not a guess (`apk add -s`):
+
+| package | pulls | note |
+| --- | --- | --- |
+| `x11vnc 0.9.16-r5` | itself + `libvncserver` + `lzo` ≈ **0.9 MiB** | mirrors the existing `:0` |
+| `tigervnc 1.13.1-r5` | 1.1 MiB **+ 8.2 MiB of `perl`** | perl belongs to the `vncserver`/`vncconfig` wrappers, not to `X0vncserver` — but apk cannot say so |
+
+Both clean and additive: no upgrades, no removals — the test that ruled out the
+Node bolt-on in §5.7, applied again. x11vnc won on size. If the session ever
+feels sluggish, TigerVNC's Tight encoder is the better bet and switching costs
+one package.
+
+**The finding worth keeping: this BSP kernel has no shared memory.**
+
+```
+# CONFIG_SYSVIPC is not set     →  no /dev/shm; `ipcs` answers
+                                   "kernel not configured for shared memory"
+```
+
+x11vnc dies on it at `shmget(scanline) failed / Function not implemented`, and the
+flag that fixes it is `-noshm`. Anything else reached for later will hit the same
+wall; that is a property of the vendor kernel, not of the software asking. Second
+gotcha: `-pidfile` is *not* an x11vnc option in this build (it is forwarded to
+libvncserver and rejected as unrecognized, exit 1) — stop it with
+`kill $(pidof x11vnc)`, as everywhere else in this project.
+
+What runs:
+
+```sh
+x11vnc -display :0 -noshm -localhost -forever -shared -nopw -gui none \
+       -bg -o /var/log/x11vnc.log
+```
+
+`-localhost` is load-bearing, not tidiness: there is **no VNC password**
+(`-nopw`), because the SSH tunnel *is* the authentication and it is already
+public-key only. VNC's own scheme is a DES hash truncated to 8 characters —
+strictly weaker than what is already on the box — so dropping `-localhost` must
+never happen without adding a password in the same breath. Bound this way it
+listens only on `127.0.0.1:5900` and `::1:5900`.
+
+Verified end to end from the workstation: through `ssh -L 5901:localhost:5900`
+the socket answered `RFB 003.008\n`, byte for byte — tunnel, listener and server
+all working together. Its log shows the framebuffer read as
+`fb_depth/fb_bpp/fb_Bpl 16/16/3840`, i.e. the real 1920-wide 16 bpp fbdev session,
+with **X DAMAGE and XFIXES both available**, so it is not polling the whole screen.
+
+Two things deliberately *not* claimed: that KRDC renders it correctly (that needs
+eyes on a GUI, §9), and that it survives a reboot. It is **not** in `rc.local`;
+that file's boot path was verified cold today and a listening service does not
+belong in it until it has earned a place.
+
+Client, either route:
+
+```
+KRDC: New connection → VNC → vnc://192.0.2.126:5900 → tick "Connect via SSH tunnel", user root
+   or
+ssh -N -L 5901:localhost:5900 root@192.0.2.126 &      then      vnc://localhost:5901
+```
 
 ---
 
@@ -1714,6 +1789,11 @@ payload was deliberately erased; no full system/vendor backup exists).
    `0 0 0 0`, i.e. no page has ever been swapped, so the 256 MiB ceiling remains
    an assumption rather than a measured fit — finding that out needs memory
    pressure this box should not be subjected to casually.
+7. **Remote desktop (§5.8, x11vnc): proven up to the protocol, not yet seen in
+   KRDC.** The server runs loopback-only and answered `RFB 003.008` through an SSH
+   tunnel from the workstation; what is left is a person looking at a KRDC window.
+   Nothing is persisted — a reboot clears it, on purpose. Stop it by hand with
+   `kill $(pidof x11vnc)`.
 
 ---
 
@@ -2049,6 +2129,46 @@ root 执行我们的 `update-binary`**。
   Node 没问题;障碍在于"有人支持的 Node"等于 Alpine 3.23,等于那次升级工程,而它应该
   先被一个**真正的 rootfs 备份**卡住(§5.4 已经证明:放在本机存储上的那份"recovery
   镜像"不算备份)。
+* **从别的机器看这台机器的屏幕:x11vnc 走 SSH 隧道。** 问题原本是"能用 KRDC 连吗"。
+  现在还差半边,但缺的不是 KRDC。**客户端实测**(`krdc 26.08.0`):VNC 视图在
+  (`krdc_vncplugin.so` + `libvncclient 0.9.15`),更有用的是 **KRDC 自带 SSH 隧道**
+  (`SshTunnelThread`、界面上的 "Connect via SSH tunnel"、libssh 的
+  `ssh_channel_open_forward`)——正因为如此,机器上什么新端口都不用开。(它的 RDP
+  插件还需要 `freerdp`,本机没装——不过无所谓,机器上也没有 RDP 服务。)
+  **服务端实测**:只有一个监听 `0.0.0.0:22 dropbear`,启动参数是 `-s -p 22`,即只认
+  公钥,而且**没带 `-j`/`-k`**,所以本地/远程转发都允许——路就在这儿。
+  选哪个服务端是**模拟**出来的(`apk add -s`),不是拍脑袋:`x11vnc 0.9.16-r5` 只拖
+  自己 + `libvncserver` + `lzo`,合计 **~0.9 MiB**;`tigervnc 1.13.1-r5` 是 1.1 MiB
+  **再加 8.2 MiB 的 `perl`**,而 perl 是 `vncserver`/`vncconfig` 那两个包装脚本要的,
+  `X0vncserver` 并不需要——但 apk 表达不了这种区别。两个都干净、纯增量,没有升级也
+  没有删除(就是 §5.7 里否掉 Node 的那个测试,再用一次)。按体积选了 x11vnc;万一将来
+  觉得卡,TigerVNC 的 Tight 编码更适合,换过去只是一个包。
+  **值得留下的发现:这个 BSP 内核没有共享内存。** `# CONFIG_SYSVIPC is not set` →
+  没有 `/dev/shm`,`ipcs` 直接答"kernel not configured for shared memory"。x11vnc
+  死在 `shmget(scanline) failed / Function not implemented`,救它的那个开关是
+  `-noshm`。以后在这台机器上找任何东西,都会撞到同一堵墙——这是厂商内核的性质,不是被
+  装的那个软件的锅。第二个坑:`-pidfile` 在这个 build 里**不是** x11vnc 的选项(它被
+  转给 libvncserver 然后被判 unrecognized,退出 1),要停就用
+  `kill $(pidof x11vnc)`,和本项目其它地方一样。现在跑的是:
+
+  ```sh
+  x11vnc -display :0 -noshm -localhost -forever -shared -nopw -gui none \
+         -bg -o /var/log/x11vnc.log
+  ```
+
+  `-localhost` 是**承重**的,不是整洁问题:这里**没有 VNC 口令**(`-nopw`),因为 SSH
+  隧道本身就是认证,而它已经是纯公钥的。VNC 自己那套是 DES 哈希再截断到 8 字符——比
+  机器上现有的东西严格更弱——所以**去掉 `-localhost` 绝不能不和"同时加口令"一起做**。
+  这样绑起来它只听 `127.0.0.1:5900` 和 `::1:5900`。从工作站一路验到底:经
+  `ssh -L 5901:localhost:5900` 对端回了 `RFB 003.008\n`,逐字节对上——隧道、监听、
+  服务三者同时成立。日志里还能看到 framebuffer 读成
+  `fb_depth/fb_bpp/fb_Bpl 16/16/3840`,也就是那个 1920 宽、16 bpp 的 fbdev 会话,
+  并且 **X DAMAGE 与 XFIXES 都可用**,所以它不是整屏轮询。
+  两件刻意**不**声称的:KRDC 画得对不对(那要看 GUI 上的人眼,见 §9),以及它能不能
+  熬过重启。它**没有**进 `rc.local`;那个文件的开机路径今天刚被冷启动验证过,一个会
+  监听的服务不该在挣到位置之前就写进去。客户端两条路任选:KRDC 里新建 VNC 连接填
+  `vnc://192.0.2.126:5900` 并勾上 "Connect via SSH tunnel"(用户 root),或者
+  `ssh -N -L 5901:localhost:5900 root@192.0.2.126 &` 之后连 `vnc://localhost:5901`。
 
 ## 6. 内置 WiFi
 
@@ -2755,6 +2875,9 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    环形缓冲起点(~4.9 秒)之前,那两行写了又被丢掉,读不到不等于没发生。仍然挂着的是:
    `io_stat` 还是 `0 0 0 0`,一个页都没换出过,所以 256 MiB 这个上限依旧只是假设;要知道
    合不合身就得制造内存压力,而这不是该随手做的事。
+7. **远程桌面(§5.8,x11vnc):协议层已通,但还没在 KRDC 里亲眼看过。** 服务端只听
+   回环,从工作站经 SSH 隧道已经拿到 `RFB 003.008`;剩下的是有人看一眼 KRDC 窗口。
+   什么都没持久化——重启就没了,这是故意的。手工停它用 `kill $(pidof x11vnc)`。
 
 ---
 
