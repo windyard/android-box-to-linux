@@ -883,6 +883,41 @@ Remaining messages are benign (`TLV check failed: type=0, len=0`, the
 Router identified: `192.0.2.1` = `02:aa:bb:cc:dd:a3` = SSID `MyWiFi24`
 (2.4 GHz, ch 2442); `02:aa:bb:cc:dd:a4` = `MyWiFi50` (5 GHz).
 
+**The ceiling is 802.11ac — this box cannot do WiFi 6, and that is now measured,
+not inferred from the model number.** `iw phy phy0 info` (2026-09-22) advertises
+`HT20/HT40` on both bands and, on Band 2, `VHT Capabilities (0x03b070b1)` with
+`Supported Channel Width: neither 160 nor 80+80`, RX **and** TX MCS 0-9 for
+**1–2 streams only** (3–8 explicitly "not supported"), `short GI (80 MHz)`,
+`TX STBC`, `SU Beamformee`, `MU Beamformee`. Searching the whole dump for `HE `
+returns **0 hits** — HE ("High Efficiency") is how cfg80211 spells 802.11ax, so
+there is no ax capability element to advertise. Read honestly, that absence is
+weaker evidence than it looks: this is a 4.9 kernel whose cfg80211 predates HE
+elements entirely, so the dump could not show ax even on an ax chip. It does not
+change the answer, because both readings end in the same place — 11ax is
+unreachable on this OS and this driver (`sprdwl_ng` + `uwe5621_bsp_sdio`,
+firmware `MARLIN3E_20A_W21.19.2`, `uwe5623_marlin3E_ott`) either way. What is
+genuinely absent from the silicon's own report is 160 MHz, and what you do not
+get on any of it is OFDMA, 1024-QAM, TWT, BSS coloring, or uplink MU-MIMO.
+**WiFi 5, 2×2, 80 MHz.**
+
+Careful with the 173 MBit/s figure above as "proof of speed": it is exactly
+**VHT MCS 9, NSS 2, 20 MHz, long GI**, i.e. two real streams squeezed into a 20
+MHz channel — because both associations ever measured on this box were on
+**2.4 GHz** (freq 2442), where 20 MHz is the only width on offer. The headline
+11ac numbers (433 Mbps per stream at 80 MHz short-GI, 867 for 2×2) would need the
+5 GHz radio, and **nobody has ever measured them here**.
+
+On the live router, that is now visible as a configuration issue rather than a
+driver one: the box is associated with `02:aa:bb:cc:dd:a3` on 2.4 GHz
+(`-42 dBm`, `tx bitrate: 52.0 MBit/s VHT-MCS 5 VHT-NSS 1`), and a scan explains
+why — `MyWiFi24` is broadcast on 2.4 GHz only, while this router's 5 GHz radio
+answers as a **separate SSID, `MyWiFi50`** (`02:aa:bb:cc:dd:a4`, 5200 MHz /
+ch 40, the neighbouring BSSID on the same box). The WiFi is not failing to see
+5 GHz (six 5 GHz BSSes came back in that scan); it is being pointed at the 2.4 GHz
+name. `wifi-up.sh` pins no band, so 80 MHz and the second stream would mean
+joining `MyWiFi50` — a decision about the router's SSID layout, not about the
+driver.
+
 Steady-state routing keeps **eth0 preferred** so the wired SSH lifeline is never
 lost:
 
@@ -2290,6 +2325,28 @@ root 执行我们的 `update-binary`**。
   等都是无害告警。
   路由策略保持 **eth0 优先**,保证有线 SSH 这条命脉不断:
   `default via 192.0.2.1 dev eth0 src .126` + `default … dev wlan0 metric 308`。
+* **能力上限是 802.11ac——这台机器做不了 WiFi 6,这条现在是测出来的,不是从型号推的。**
+  `iw phy phy0 info`(2026-09-22)在两个频段都声明 `HT20/HT40`,并在 Band 2 上声明
+  `VHT Capabilities (0x03b070b1)`,其中 `Supported Channel Width: neither 160 nor
+  80+80`、RX **和** TX 都是 **只有 1–2 流** MCS 0-9(3–8 流明确写 "not supported")、
+  `short GI (80 MHz)`、`TX STBC`、`SU Beamformee`、`MU Beamformee`。整份 dump 里搜
+  `HE ` 命中 **0 次**——HE(High Efficiency)就是 cfg80211 里 802.11ax 的写法,也就是根本没有
+  ax 能力元素可声明。但要诚实:这条"没有"比它看上去弱——4.9 内核的 cfg80211 早于 HE 元素,
+  所以就算芯片支持 ax,这份 dump 也显示不出来。结论不变,因为两种解读落在同一个地方:在这个
+  操作系统、这个驱动(`sprdwl_ng` + `uwe5621_bsp_sdio`,固件 `MARLIN3E_20A_W21.19.2`、
+  `uwe5623_marlin3E_ott`)上 11ax 都到不了。芯片自己的报告里真正缺的是 160 MHz;而 OFDMA、
+  1024-QAM、TWT、BSS coloring、上行 MU-MIMO 一个都没有。**WiFi 5,2×2,80 MHz。**
+  上面那个 173 MBit/s 别当成"速率证明":它精确等于 **VHT MCS 9、NSS 2、20 MHz、长 GI**,
+  也就是两条真流被塞在 20 MHz 里——因为本机**迄今量过的两次关联都在 2.4 GHz**(freq 2442),
+  那里只有 20 MHz 可用。11ac 的招牌数值(80 MHz 短 GI 每流 433 Mbps、2×2 是 867)要 5 GHz
+  射频,**这台机器从来没测过**。
+  在真路由器上这已经变成配置问题而不是驱动问题:机器现在关联的是 `02:aa:bb:cc:dd:a3`,
+  2.4 GHz(`-42 dBm`、`tx bitrate: 52.0 MBit/s VHT-MCS 5 VHT-NSS 1`),一次扫描解释了原因
+  ——`MyWiFi24` 只在 2.4 GHz 广播,而这台路由器的 5 GHz 射频用的是**另一个 SSID
+  `MyWiFi50`**(`02:aa:bb:cc:dd:a4`,5200 MHz / 信道 40,BSSID 和 2.4G 那个只差末位)。
+  所以不是 WiFi 看不见 5 GHz(那次扫描回来 6 个 5 GHz BSS),是被指到了 2.4 GHz 那个名字上。
+  `wifi-up.sh` 没有锁频段,想要 80 MHz 和第二流,就得改连 `MyWiFi50`——那是路由器 SSID
+  布局的决定,不是驱动的问题。
 * **wpa_supplicant 的坑(浪费了一整个周期)**:本机 v2.10 **不支持 `-f` 日志参数**,
   而且用法打印后**以 0 退出**,脚本看起来"成功"了其实进程没起。统一改用:
   `wpa_supplicant -B -Dnl80211 -iwlan0 -c… -P/run/wpa_supplicant.pid`。
