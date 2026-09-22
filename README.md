@@ -916,7 +916,8 @@ ch 40, the neighbouring BSSID on the same box). The WiFi is not failing to see
 5 GHz (six 5 GHz BSSes came back in that scan); it is being pointed at the 2.4 GHz
 name. `wifi-up.sh` pins no band, so 80 MHz and the second stream would mean
 joining `MyWiFi50` — a decision about the router's SSID layout, not about the
-driver.
+driver. **That last sentence was written before trying it, and trying it is §6.11:
+the join fails at association, and the picture is not that simple.**
 
 Steady-state routing keeps **eth0 preferred** so the wired SSH lifeline is never
 lost:
@@ -1103,6 +1104,68 @@ Two measurement traps hit while building this, both worth remembering:
   "network unavailable" run then *succeeded* — which would have been recorded as
   the failure path working. Use a peer that cannot possibly answer (RFC 5737
   `192.0.2.x`, or a `.invalid` name) and assert on the outcome, not the setup.
+
+---
+
+### 6.11 Why `MyWiFi50` (the router's 5 GHz SSID) will not take (2026-09-22)
+
+The router answers twice: `MyWiFi24` on 2.4 GHz (`02:aa:bb:cc:dd:a3`, ch 2442)
+and its 5 GHz radio as a **separate SSID** `MyWiFi50` (`02:aa:bb:cc:dd:a4`,
+5200 MHz / ch 40, `-48 dBm`). §6.6 explains why the box is on 2.4 GHz. Trying to
+join the 5 GHz one from the desktop (`WiFi.desktop` → `wifi-add.sh`) fails, and
+the failure is *not* what the message says.
+
+What it is: `CTRL-EVENT-ASSOC-REJECT bssid=02:aa:bb:cc:dd:a4 status_code=1`,
+three times, ~7 s apart, deterministic, mirrored in the kernel ring as
+`sprdwl_report_connection MyWiFi50 failed status code:1!`. The rejection
+happens **at association**, so:
+
+* **The passphrase is not the problem** — a wrong PSK surfaces as a 4-way
+  handshake timeout, which is *after* association. No handshake was ever
+  reached. Both blocks carry different PMKs, which is consistent with a typo, and
+  still cannot be the cause.
+* **Not WPA3/SAE.** The AP advertises `Authentication suites: PSK SAE` with MFP
+  *capable*, not required, and wpa_supplicant negotiated the plain one:
+  `WPA: AP key_mgmt 0x402 network profile key_mgmt 0x3; available key_mgmt 0x2`
+  → `WPA: using KEY_MGMT WPA-PSK`. (This mattered because 2.10's default
+  `key_mgmt` can include SAE, and SAE fails before association too.)
+* **Not channel legality** — the phy lists `5200 MHz [40] (20.0 dBm)`, not
+  `disabled`; not a corrupted config either (`update_config=1` had written no
+  `disabled=` lines).
+* **Not a WiFi-6 question** — §6.6 already settled that ax is unreachable here.
+
+There *is* a real box-side defect underneath, found while eliminating the rest:
+**this system cannot leave the world regulatory domain.** `wpa_supplicant` does
+read `country=CN` out of the conf (its own debug prints `country='CN'`) and
+requests it, and cfg80211 answers `Regulatory information - country=00`.
+`iw reg set CN` does not stick either. The chain is in `/proc/config.gz`:
+`# CONFIG_CFG80211_INTERNAL_REGDB is not set` with `CONFIG_CFG80211_CRDA_SUPPORT=y`
+— so the kernel asks userspace `/usr/sbin/crda`, which does not exist, and Alpine
+3.20 has **no `crda` package at all** (`apk search -x crda` → nothing; only
+`wireless-regdb-2024.05.08-r0`, the data). Installing the data alone is dead
+weight: this 4.9 cfg80211 predates the `regulatory.db` reader entirely (no
+`CONFIG_CFG80211_USE_KERNEL_REGDB_KEYS` in the config), so only the deprecated
+CRDA path could ever have consumed it. Consequence visible in `iw reg get`: every
+5 GHz range is `PASSIVE-SCAN`, and so are 2.4 GHz channels 12–14.
+
+So two hypotheses survive, and they are separated by one test that does not touch
+the router: **join some other 5 GHz network with a known password** (a phone
+hotspot forced to 5 GHz). Refuses that too ⇒ the box's 5 GHz connect path is the
+problem. Joins it ⇒ this router's 5 GHz band mode is the problem, most likely set
+to 802.11ax-only, which is exactly how consumer APs reject an 11ac client: accept
+the authentication, refuse the association with "unspecified failure".
+
+Two smaller things worth keeping. `bounce_supplicant()` in `wifi-add.sh` restarts
+wpa_supplicant over the *whole* conf and never calls `select_network`, so with
+both SSIDs configured wpa chooses by signal — `-41 dBm` MyWiFi24 beats
+`-48 dBm` MyWiFi50, and the script's "connected after Ns" line can therefore
+report success against the network you did not ask for. Check `wpa_cli status`'s
+`id=`/`ssid=` after any join, not just the script's exit message. And to get a
+state machine out of this wpa build at all: it has **no `log_console` command**
+(§6.7 strikes again — `Unknown command 'log_console'`), so the capture above came
+from a second instance run in the foreground with `-d` against a one-network temp
+config, then the real config restored. PMKs were never printed (64-hex scrub,
+configs mode 0600, temp files deleted afterwards).
 
 ---
 
@@ -1868,6 +1931,16 @@ payload was deliberately erased; no full system/vendor backup exists).
    always-on list — say the word), and the fact that KRDC 26.08's built-in SSH
    tunnel can never authenticate here, because it only does agent-or-password
    while dropbear runs `-s`.
+8. **5 GHz / `MyWiFi50` (§6.11): refused at association, cause still split
+   between the box and the router.** Proven *not* involved: the passphrase,
+   WPA3/SAE, channel legality, WiFi 6. One real box-side defect came out of the
+   elimination — this system is stuck in world regulatory domain `00` (no
+   `CONFIG_CFG80211_INTERNAL_REGDB`, CRDA support compiled in but Alpine 3.20
+   ships no `crda`, and 4.9 cannot read `regulatory.db`), which makes every 5 GHz
+   range passive-scan only. One experiment separates the remaining possibilities
+   without going near the router: join any other 5 GHz network with a known
+   password. Also filed as a defect in its own right: `wifi-add.sh` never calls
+   `select_network`, so its success line can be reporting the other SSID.
 
 ---
 
@@ -2346,7 +2419,8 @@ root 执行我们的 `update-binary`**。
   `MyWiFi50`**(`02:aa:bb:cc:dd:a4`,5200 MHz / 信道 40,BSSID 和 2.4G 那个只差末位)。
   所以不是 WiFi 看不见 5 GHz(那次扫描回来 6 个 5 GHz BSS),是被指到了 2.4 GHz 那个名字上。
   `wifi-up.sh` 没有锁频段,想要 80 MHz 和第二流,就得改连 `MyWiFi50`——那是路由器 SSID
-  布局的决定,不是驱动的问题。
+  布局的决定,不是驱动的问题。**这句话是在"真的去试之前"写的:试的结果见 §6.11——连接在
+  关联阶段就被拒,事情没那么简单。**
 * **wpa_supplicant 的坑(浪费了一整个周期)**:本机 v2.10 **不支持 `-f` 日志参数**,
   而且用法打印后**以 0 退出**,脚本看起来"成功"了其实进程没起。统一改用:
   `wpa_supplicant -B -Dnl80211 -iwlan0 -c… -P/run/wpa_supplicant.pid`。
@@ -2403,6 +2477,55 @@ root 执行我们的 `update-binary`**。
   面对健康对端返回空(同一台服务器 3/3 对 3/3);以及**做失败的负向测试**——想用
   `iptables` 封 UDP/123 结果本机没这个命令,"断网测试"于是以成功告终,差点被记成
   失败路径通过。断言要落在结果上,不是落在配置上。
+
+### 6.11 为什么 `MyWiFi50`(路由器的 5 GHz SSID)连不上(2026-09-22)
+
+这台路由器广播两个名字:2.4 GHz 的 `MyWiFi24`(`02:aa:bb:cc:dd:a3`,ch 2442)和
+**单独一个名字**的 5 GHz 射频 `MyWiFi50`(`02:aa:bb:cc:dd:a4`,5200 MHz / ch 40,
+`-48 dBm`)。机器为什么在 2.4 GHz 见 §6.6。从桌面(图标 `WiFi.desktop` →
+`wifi-add.sh`)去连 5 GHz 那个会失败,而且失败原因**不是脚本报的那句**。
+
+真实情况是:`CTRL-EVENT-ASSOC-REJECT bssid=02:aa:bb:cc:dd:a4 status_code=1`,三次,
+间隔约 7 秒,完全确定;内核环形缓冲里对应 `sprdwl_report_connection MyWiFi50
+failed status code:1!`。拒绝发生在**关联(association)阶段**,于是:
+
+* **不是口令错**——口令错表现为四次握手超时,那是关联*之后*;这里从没走到握手。
+  两个 network 块的 PMK 确实不同(说明确实敲错了字),但那仍然不可能是原因。
+* **不是 WPA3/SAE**——AP 广播 `Authentication suites: PSK SAE`,MFP 是 *capable*
+  而非 required,而 wpa_supplicant 协商到了普通那个:`WPA: AP key_mgmt 0x402
+  network profile key_mgmt 0x3; available key_mgmt 0x2` → `WPA: using KEY_MGMT
+  WPA-PSK`。(这条值得查,因为 2.10 的默认 `key_mgmt` 可能含 SAE,而 SAE 失败同样
+  发生在关联之前。)
+* **不是信道合法性**——phy 里 `5200 MHz [40] (20.0 dBm)`,不是 `disabled`;也不是
+  配置被写坏(`update_config=1` 没写过任何 `disabled=` 行)。
+* **更不是 WiFi 6 的问题**——§6.6 已经确定这里到不了 ax。
+
+在排除这些的过程中挖出一个**真属于本机的缺陷:这套系统出不了世界监管域**。
+`wpa_supplicant` 确实从配置里读到了 `country=CN`(它自己的 debug 打了
+`country='CN'`)并且下发了,但 cfg80211 回的是 `Regulatory information -
+country=00`;手工 `iw reg set CN` 同样不生效。链条在 `/proc/config.gz` 里:
+`# CONFIG_CFG80211_INTERNAL_REGDB is not set` 且 `CONFIG_CFG80211_CRDA_SUPPORT=y`
+——也就是内核去问用户态的 `/usr/sbin/crda`,而它不存在;Alpine 3.20 **根本没有
+`crda` 这个包**(`apk search -x crda` 空,只有数据包 `wireless-regdb-2024.05.08-r0`)。
+只装数据包也是白装:4.9 的 cfg80211 完全不认 `regulatory.db`(配置里没有
+`CONFIG_CFG80211_USE_KERNEL_REGDB_KEYS`),能消费它的只有那条已经废弃的 CRDA 路径。
+`iw reg get` 里能直接看到这个后果:**所有 5 GHz 频段都是 `PASSIVE-SCAN`**,
+2.4 GHz 的 12–14 信道也是。
+
+所以还剩下两个假设,区分它们只需一个不碰路由器的实验:**去连另一个已知口令的 5 GHz
+网络**(把手机热点强制到 5 GHz)。那个也拒 ⇒ 本机的 5 GHz 关联路径有问题;那个能连上
+⇒ 是这台路由器 5 GHz 的设置,最可能是被调成了"仅 802.11ax"——消费级路由器拒绝 11ac
+客户端的标准表现正是:接受 authentication,然后用 "unspecified failure" 拒绝 association。
+
+还有两条小经验值得留。`wifi-add.sh` 里的 `bounce_supplicant()` 是拿**整份配置**重启
+wpa_supplicant,从不 `select_network`,所以两个 SSID 都在配置里时 wpa 按信号强度自己
+挑——`-41 dBm` 的 MyWiFi24 赢过 `-48 dBm` 的 MyWiFi50,于是脚本那句
+"connected after Ns" 完全可以是在报"连上了你没要连的那个"。任何 join 之后要查
+`wpa_cli status` 里的 `id=`/`ssid=`,而不是只看脚本的结束语。另外想从这份 wpa 里抠出
+状态机:它**没有 `log_console` 命令**(§6.7 又应验一次——`Unknown command
+'log_console'`),上面那份记录是靠"用只含一个 network 的临时配置,在前台再起一个带 `-d`
+的实例"拿到的,拿到之后再恢复正式配置。PMK 全程没有打印(64 位十六进制一律打码、临时
+配置 0600、用完删除)。
 
 ## 7. 显示(HDMI)之战
 
@@ -3000,6 +3123,13 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    真正还挂着的两件事:要不要把它持久化(那会改动 2026-09-22 冷启动验证过的开机路径,
    并把一个 `-nopw` 的服务加进常驻列表——你说了算),以及 KRDC 26.08 自带的那条 SSH 隧道
    在这台机器上永远认证不过去——它只会 agent 或口令,而 dropbear 带着 `-s`。
+8. **5 GHz / `MyWiFi50`(§6.11):关联阶段被拒,原因还在"机器"和"路由器"之间没分开。**
+   已被证明**无关**的:口令、WPA3/SAE、信道合法性、WiFi 6。排除过程中挖出一个货真价实的
+   本机缺陷:这套系统卡在世界监管域 `00`(没有 `CONFIG_CFG80211_INTERNAL_REGDB`,
+   CRDA 路径编进了内核但 Alpine 3.20 没有 `crda` 包,而 4.9 读不了 `regulatory.db`),
+   后果是所有 5 GHz 频段只能 PASSIVE-SCAN。区分剩下两种可能的实验不需要碰路由器:去连
+   另一个已知口令的 5 GHz 网络。另外单独记一条脚本缺陷:`wifi-add.sh` 从不调用
+   `select_network`,所以它那句"连上了"可能报的是另一个 SSID。
 
 ---
 
