@@ -549,7 +549,9 @@ returned, with the storage binds, `tzdata` timezone, `time-up.sh`, 1080p60 and
 zram all present at once — and the box came back by itself: five reclaimed-partition
 mounts including both binds, `/dev/zram0` in `/proc/swaps`, WiFi associated with
 `INTERNET via wlan0: OK`, NTP stepped at t=38 s and the RTC written, Xorg and the
-panel running, `cur_VIC: 16`. The one thing the test cannot show is *how* the
+panel running, `cur_VIC: 16` — and, confirmed off the screen rather than from
+`/sys`, the desktop was actually displayed on the TV and the panel clock read the
+correct CST time despite having started 25 s before the step. The one thing the test cannot show is *how* the
 filesystems survived it: journal replay would have been visible only in the first
 4.9 s of the ring (see above). I looked — the surviving 310 lines begin at 4.92 s
 and contain no ext4 output of any kind — so the absence is the known blind spot,
@@ -910,6 +912,16 @@ Do **not** substitute a `TZ` environment variable. An explicit `TZ` overrides
 `/etc/localtime` for every process that inherits it, so a stray `TZ=UTC` pins a
 subtree to UTC — and on a box without zoneinfo, a stray `TZ=Asia/Shanghai` pins
 it to UTC too, while looking entirely deliberate.
+
+One thing the 2026-09-22 boots added, because NTP did not land at the same time
+twice (t=21 s, then t=38 s after a power-cycle): **the panel had already started,
+showing the seeded floor, and was then stepped from underneath.** After the step
+the on-screen clock was read again and showed the correct CST time, so the plugin
+follows a stepped clock rather than caching what it read at startup. Worth
+writing down: a plugin that *did* cache it would have looked exactly like the
+timezone bug all over again — same symptom, different cause, and the fix would
+have been sought in the wrong file. Note also that only the end state was
+observed, not the transition itself.
 
 Boot-time NTP is §6.10.
 
@@ -1969,7 +1981,9 @@ root 执行我们的 `update-binary`**。
   `tzdata` 时区 + `time-up.sh` + 1080p60 **再加上 zram** 同时生效的状态下拔电再上电,
   机器**无人干预自己回来了**,事后文件系统层面能查的逐项都在:五个回收分区挂载点(含两条 bind)、
   `/proc/swaps` 里的 `/dev/zram0`、WiFi `INTERNET via wlan0: OK`、t=38 秒 NTP 校准并
-  写回 RTC、Xorg 与面板在跑、`cur_VIC: 16`。这个测试**看不到**的只有一件事:文件系统
+  写回 RTC、Xorg 与面板在跑、`cur_VIC: 16`——而且是**看着屏幕**确认的:电视上确实
+  有桌面,面板时钟在"比校准早起 25 秒"的情况下也读出了正确的 CST 时间。这个测试
+  **看不到**的只有一件事:文件系统
   到底*怎么*扛过来的——日志回放只会出现在前 4.9 秒(见上)。我查了:幸存的 310 行从
   4.92 秒开始,里面**一条 ext4 输出都没有**,所以"没有"是本机已知的盲区、不是合格证。
   这里的证据是"挂上了、东西都还在",而不是某行日志。
@@ -2131,6 +2145,12 @@ root 执行我们的 `update-binary`**。
   不再依赖默认值。属性写后读回、XML 的 mtime 都确认落盘(硬断电也在),退出码不作数。
   最后面板被**人眼读出为正确的 CST 时间**才算完——这一步正是前两个诊断
   跳过去没做的,所以只在它发生之后记录,不许提前写。
+  2026-09-22 那两次开机还顺带回答了一个问题:公网对时两次落在不同时刻(t=21 秒、
+  断电重启那次 t=38 秒),也就是说**面板先起来、显示的是那个假 floor,之后才在运行中
+  被步进**。步进之后再读屏幕,时间是正确的 CST,所以这个插件跟着系统时钟走、不会缓存
+  启动时读到的值。值得写下来,是因为**会缓存的那种长得一模一样**:同样的症状、不同的
+  原因,而修复会被写进完全无关的文件里。另外要说清楚:观察到的只是最终状态,不是变化的
+  那一瞬间。
   别拿 `TZ` 环境变量当替身:显式 `TZ` 会覆盖 `/etc/localtime`,残留的 `TZ=UTC` 会把
   一整棵进程树钉在 UTC;而没装 tzdata 时残留的 `TZ=Asia/Shanghai` 同样钉在 UTC,
   还看起来完全像是故意的。
