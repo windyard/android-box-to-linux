@@ -1756,6 +1756,100 @@ all come up unattended.
 
 ---
 
+### 7.8 The 2026-09-22 follow-up session: hotplug, headless boots, and values that lie with `\r`
+
+Three symptoms opened this session, none previously documented: (a) if no
+monitor was attached at boot, the TV never shows anything afterwards; (b) if the
+monitor is unplugged mid-session, reconnecting never recovers without a reboot;
+(c, VNC, §5.8) Caps Lock appeared dead over VNC.
+
+**Caps Lock triage (short, it belongs to §5.8).** The whole
+x11vnc→XTest→XKB path proved healthy: injecting `Caps_Lock` via XTest, and
+again via a raw RFB client on the real port, both flipped the server LED mask.
+The server-side Caps Lock had been stuck **ON** (the IR/BT keypads register as
+keyboards too — `aml_keypad` even as mouse *and* keyboard; the log also showed a
+stuck Space, keycode 65) while the client assumed OFF; each press then flipped
+the server *opposite* to the client's indicator, which is exactly what "dead
+key" looks like. Reset and moved on; if it recurs, suspect the viewer first.
+`xset` and `xdotool` are now installed on the box for this class of test.
+
+**Hotplug root cause, in three layers.**
+1. *Nothing consumes the hotplug.* The kernel does its part — EDID re-parsed,
+   extcon uevent emitted (`udevadm monitor` shows
+   `/devices/virtual/amhdmitx/amhdmitx0/hdmi` changes) — but there were **zero
+   udev rules**, and fbdev-X cannot touch outputs. Recovery on this BSP is a
+   userspace job.
+2. **A same-mode write is a no-op.** With the link dead and
+   `display/mode` already `1080p60hz`, re-writing `1080p60hz` does *nothing*;
+   only a real **bounce** (`720p60hz` then back) re-runs
+   `hdmitx_set_current_vmode` and re-locks TMDS. This is precisely why a reboot
+   "fixed" it and a replug never did: the boot recipe *is* a real change
+   (`576cvbs`→`1080p60hz` in the boot log).
+3. **Mode writes re-enable the splash plane** (§7.3.1, again). Recovery =
+   mode bounce **plus** blank `fb1` **plus** axes + `fbfill`/`osd_do_hwc`/
+   `fblatch`, in order. Half the recipe gives "signal back but showing the
+   splash"; we watched that happen live before the full recipe restored the
+   desktop.
+
+Shipped, persistent, in `/usr/local/bin` + `/etc/udev/rules.d`:
+
+* `hdmi-replug.sh` — the recovery recipe above; **no X restart**, so SSH and
+  VNC sessions survive it.
+* `hdmi-hotplug-handle` — udev RUN target (`95-hdmi-replug.rules`, matches
+  the extcon `hdmi` change). Debounce: acts only on a link-down **≥ 3 s**
+  (this TV micro-drops HPD for ~0.7 s; see below), 30 s throttle shared with
+  the watchdog, 5 s settle delay; everything under `flock`, backgrounded, so
+  RUN returns instantly.
+* Live-verified: a real ~10 s unplug recovered the picture **by itself** at
+  11:00:51 and 10:52:51 (two independent tests), zero manual steps.
+
+**Headless boots exposed two more silent failures.**
+
+* **Xorg died once on a headless boot and left `/tmp/.X0-lock` + the `X0`
+  socket behind**; every start after that — boot retries included — failed
+  with `Server is already active for display 0`, and `display-up.sh` did not
+  notice. The box was network-alive with **no desktop**, which made *every*
+  display symptom look unfixed. `/tmp` is tmpfs, so such a lock is always
+  same-boot, from a *dead* process. `display-up.sh` now clears stale
+  lock/socket before starting, verifies Xorg alive 5 s later, retries once.
+  (The original death did not reproduce on the next headless boot; the guard
+  covers both outcomes.)
+* **x11vnc had no autostart** — §5.8 started it by hand, so every reboot
+  silently killed the VNC lifeline. Now started from `display-up.sh`.
+
+**Third silent failure: switching the TV input back is NOT a plug event.**
+`hpd_state` stays 1, no uevent, the udev rule sees nothing — yet after a
+headless boot `hdmitx` can sit at **`ready=0 vic=0`** (link never locks; EDID
+still readable over DDC at 140 s into that very boot, which is how we know the
+sink is talking). Fixed with `hdmi-watchdog.sh`: polls every 10 s; if
+`hpd=1` and (`ready≠1` or `vic=0`) holds for **two consecutive** polls, runs
+`hdmi-replug.sh` under the shared throttle. Autostarted from `display-up.sh`,
+pidfile-guarded.
+
+**The `\r` booby-trap — this one punished us on the live panel.**
+`cat /sys/class/amhdmitx/amhdmitx0/ready` returns `1\r\n`, while `hpd_state`
+returns bare `1` (no newline at all) and `vic` returns `16\n`: the vendor tree's
+sysfs conventions are **inconsistent**. `$(...)` strips trailing *newlines*
+only, so `[ "$r" = 1 ]` is never true, and the first watchdog version bounced a
+**healthy** link every 30 s — visible flashes, four log entries before we
+caught it. Byte-verify (`od -c`) before comparing any sysfs value in shell, and
+`| tr -d '\r'` by reflex. A §7.4 cousin: values that lie with invisible bytes.
+
+**HPD micro-drop flapping: more data for §7.7.8.** During this session the Mi
+TV flap appeared (plugout→plugin pairs ~every 8 s, 160+ events; the TV's plugout
+holds ~0.7 s before it re-asserts) and **stopped entirely** about 45 min later;
+video was never observably lost during it. The handler's ≥ 3 s gate never
+misfired on it. Do not chase flapping in userspace while the picture is stable.
+
+**`fake_plug` warning.** `echo 1 > /sys/class/amhdmitx/amhdmitx0/fake_plug`
+simulates a plugout, but **`echo 0` does not undo it**: `hpd_state` latches at
+0 (extcon says `HDMI=0`) while the transmitter keeps picture (`avmute=0`,
+`vid_mute=0`), and the raw pin still reads `rhpd_state=1`. Only a **real** HPD
+edge re-arms it — replug the cable. On a box without serial console this makes
+`fake_plug` unusable as a test shortcut; if the moment is unlucky (ours: splash
+plane had been left enabled by the earlier fake plugout) it looks like a brand
+new failure mode.
+
 ## 8. Reproducible runbook
 
 ```bash
@@ -2995,6 +3089,83 @@ drops=0,但没有一次在 5 秒之后掉**。热重启与冷重启都全自动�
 `/etc/fstab` 里新增的两条 bind(`/var/cache/apk`→`/opt`、`/var/log`→`/home`)也已确认
 是**开机自动生效**而不是手工挂上去的:重启后两条都在 `/proc/mounts` 里,而之前
 `mv` 跨文件系统时被 Xorg 句柄攥在根分区上的 `(deleted)` 日志也随重启消失。
+
+### 7.8 2026-09-22 追加 session:热插拔、无屏开机,以及用 `\r` 撒谎的读数
+
+本次 session 开场有三个此前没记录过的症状:(a) 开机时没接显示器,之后再插
+电视永远无画面;(b) 中途拔掉显示器,重新插上不重启就不恢复;(c, VNC, §5.8)
+Caps Lock 在 VNC 里像坏了。
+
+**Caps Lock 排查(简述,归属 §5.8)。** x11vnc→XTest→XKB 全链路实测健康:
+用 XTest 注入 `Caps_Lock`,再用裸 RFB 客户端走真实端口发同一个 keysym,服务端
+LED mask 都能翻转。真相是服务端 Caps Lock 一直卡在 **ON**(IR/蓝牙遥控器在系统
+里也是键盘 —— `aml_keypad` 甚至同时是鼠标和键盘;日志里还有一次 Space
+(keycode 65)粘键),而客户端以为是 OFF,于是每按一次,服务端翻的方向和客户端
+指示灯**相反**,看起来就是"键没反应"。复位了事;再遇到先怀疑 viewer。机器上现已
+装好 `xset`、`xdotool` 备用。
+
+**热插拔根因,一共三层。**
+1. *没有任何东西消费热插拔事件。* 内核该做的都做了 —— 重新解析 EDID、发 extcon
+   uevent(`udevadm monitor` 可见 `/devices/virtual/amhdmitx/amhdmitx0/hdmi` 的
+   change)—— 但 udev 规则**一条都没有**,而 fbdev-X 管不了输出。在这个 BSP 上,
+   恢复只能是用户态的活。
+2. **同值重写 mode 是空操作。** 链路已死、`display/mode` 还写着
+   `1080p60hz` 时,再写一遍 `1080p60hz` **什么都不发生**;必须真
+   **跳一档**(先 `720p60hz` 再跳回)才会重走
+   `hdmitx_set_current_vmode`、重新锁 TMDS。这正是"重启能治好、拔插不能"的原因:
+   开机 recipe 本来就是真变化(启动日志里 `576cvbs`→`1080p60hz`)。
+3. **任何 mode 写入都会重新点亮 splash 平面**(§7.3.1 又回来了)。完整恢复 =
+   跳档 + 熄灭 `fb1` + 重设各 axis + `fbfill`/`osd_do_hwc`/`fblatch`,顺序
+   如前。只做一半的效果我们现场看到了:"信号是回来了,但画面是开机 splash",
+   补全 recipe 桌面才回来。
+
+已装成持久件(`/usr/local/bin` + `/etc/udev/rules.d`):
+
+* `hdmi-replug.sh` —— 上面那套恢复 recipe;**不重启 X**,SSH/VNC 会话都能存活。
+* `hdmi-hotplug-handle` —— udev RUN 目标(`95-hdmi-replug.rules`,匹配 extcon
+  `hdmi` change)。防抖:只对**≥ 3 秒**的断链动作(这台电视的 HPD 会 ~0.7 秒
+  微掉,见下),与 watchdog 共用 30 秒节流,事件后先等 5 秒;全程 `flock`,
+  动作放后台,RUN 即刻返回。
+* 实测通过:真拔 ~10 秒再插回,10:52 与 11:00 两次**全自动**恢复,零手工。
+
+**无屏开机又暴露两个静默故障。**
+
+* **一次无屏启动里 Xorg 死在启动后 ~15 秒,留下了 `/tmp/.X0-lock` 和 `X0`
+  socket**;之后每次启动都撞 `Server is already active for display 0`,而
+  `display-up.sh` 并不自知。机器网络健在但**没有桌面**,于是所有显示问题看起来
+  "都没修好"。`/tmp` 是 tmpfs,这种锁必然是**本次开机**里一个已死进程留的。
+  `display-up.sh` 现在:启动前清陈旧 lock/socket,5 秒后验 Xorg 活着,死了重试
+  一次。(第一次的死亡在下次无屏启动没能复现 —— 防呆两种结果都兜住。)
+* **x11vnc 从来不自启** —— §5.8 一直是手工拉起,于是每次重启都静默失去 VNC
+  生命线。现已并入 `display-up.sh`。
+
+**第三个静默故障:把电视切回本信号的 input 不是插拔事件。** `hpd_state` 一直
+是 1,没有 uevent,udev 规则无从察觉 —— 而无屏开机后 `hdmitx` 可以停在
+**`ready=0 vic=0`**(链路根本没锁;那次开机 140 秒时 DDC 仍能读到 EDID,说明
+sink 在说话)。解法是 `hdmi-watchdog.sh`:每 10 秒查一次,若 `hpd=1` 且
+(`ready≠1` 或 `vic=0`)**连续两次**成立,就走共用节流的 `hdmi-replug.sh`。
+由 `display-up.sh` 带 pidfile 防重地拉起。
+
+**`\r` 陷阱 —— 这条是在活的电视上付的学费。**
+`cat /sys/class/amhdmitx/amhdmitx0/ready` 返回 `1\r\n`,而 `hpd_state` 返回
+不带换行的裸 `1`,`vic` 返回 `16\n`:vendor 内核 sysfs 的约定**不统一**。
+`$(...)` 只裁尾部**换行**,所以 `[ "$r" = 1 ]` 永远不成立,watchdog 第一版
+把**健康**的链路每 30 秒重跳一档 —— 肉眼可见的闪烁,抓到前日志已有四条。今后
+对比任何 sysfs 值之前先 `od -c` 看字节,shell 里无脑 `| tr -d '\r'`。这是
+§7.4 的同族:**用不可见字节撒谎的读数**。
+
+**HPD 微掉 flapping:给 §7.7.8 再添一组数据。** 本次 session 里 Mi TV 的
+plugout→plugin 对(~每 8 秒一次,共 160+,每次 plugout 持续 ~0.7 秒)出现过,
+又在约 45 分钟后**自行彻底停止**;期间画面始终没掉。handler 的 ≥3 秒门槛一次
+都没误触发。画面稳定时,不要在用户态追这个 flap。
+
+**`fake_plug` 警告。**
+`echo 1 > /sys/class/amhdmitx/amhdmitx0/fake_plug` 能模拟拔出,但 **`echo 0`
+并不能撤销**:`hpd_state` 粘在 0(extcon 也跟着报 `HDMI=0`),而发射器照常出画
+(`avmute=0`、`vid_mute=0`),原始管脚仍读 `rhpd_state=1`。只有**真实** HPD 边沿
+能重新武装它 —— 得去拔线。没有串口 console 的机器上,`fake_plug` 不能当测试捷径:
+时机不巧就会像我们这次(早前一次真·plugout 把 splash 平面留着没熄)把现场搞成
+一个全新故障的样子。
 
 ## 8. 复现命令速查
 
