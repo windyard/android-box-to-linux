@@ -539,14 +539,22 @@ journal replay (or its absence) are already gone; "no recovery lines" there mean
 nothing. The help text is the evidence. The filesystem state was a story that
 fitted.
 
-What this does **not** test is the case §0 is actually about. A GUI or SSH reboot
-is warm: U-Boot, the `recovery`-partition boot image and the from-dead HDMI
+What a GUI or SSH reboot does **not** test is the case §0 is actually about. It is
+warm: U-Boot, the `recovery`-partition boot image and the from-dead HDMI
 handshake are all skipped, and `data` is cleanly unmounted so nothing is
-replayed. Power was never removed. So "the box self-recovers from being
-unplugged" is verified only for the configuration that the earlier genuine
-power-cycles exercised — with the current storage, timezone, `time-up.sh` and
-1080p60 stack combined for the first time, **a true unplug-and-return test is
-outstanding** (§9).
+replayed. That left "the box self-recovers from being unplugged" verified only
+for configurations the earlier power-cycles exercised, none of which had the
+current stack. **On 2026-09-22 the real test was run** — power removed and
+returned, with the storage binds, `tzdata` timezone, `time-up.sh`, 1080p60 and
+zram all present at once — and the box came back by itself: five reclaimed-partition
+mounts including both binds, `/dev/zram0` in `/proc/swaps`, WiFi associated with
+`INTERNET via wlan0: OK`, NTP stepped at t=38 s and the RTC written, Xorg and the
+panel running, `cur_VIC: 16`. The one thing the test cannot show is *how* the
+filesystems survived it: journal replay would have been visible only in the first
+4.9 s of the ring (see above). I looked — the surviving 310 lines begin at 4.92 s
+and contain no ext4 output of any kind — so the absence is the known blind spot,
+not a clean bill of health. "It mounted and everything was still there" is the
+evidence here, not a log line.
 
 ### 5.6 Memory: ~1 GB, and swap only as of 2026-09-22
 
@@ -611,9 +619,8 @@ of this entire bring-up. What is and is not established:
 * **now proven at boot**, by the reboot on 2026-09-22 (new `boot_id`,
   `/proc/swaps` = `/dev/zram0 262140` with nothing having touched it since
   init): `rc.local`'s setup block runs unattended and the ceiling is honoured.
-  Note this was a **warm** reboot through init — which is precisely what
-  exercises `rc.local`, so it is the right test for this. The §0 power-cycle
-  remains a different thing, and is still outstanding.
+  The same block then survived the §0 **power-cycle** on the same day (§5.5), so
+  it is now seen on a from-dead start as well as a warm reboot through init.
 
 One thing that boot taught me, because it nearly read as a failure: `dmesg |
 grep zram0` returns **nothing** on a box that has just set zram up correctly.
@@ -1461,9 +1468,9 @@ caused rather than boot-caused. **Sample for longer than the period you are
 looking for, or don't call it a measurement.**
 
 `display-up.sh` now carries a 180-second boot-window HPD observer for exactly
-this reason, logging to `/var/log/hpd-boot.log`. **Six boots are on record, all
-at 1080p60: three produced a single drop at t≈4–5 s and three produced none — and
-no boot has ever dropped after 5 s**, so 1080 samples contain nothing in their
+this reason, logging to `/var/log/hpd-boot.log`. **Seven boots are on record, all
+at 1080p60: three produced a single drop at t≈4–5 s and four produced none — and
+no boot has ever dropped after 5 s**, so 1260 samples contain nothing in their
 last 175 s. The drop is *consistent with* the recipe's own `display/mode` write
 and no more than that: the same write ran twice without moving the link, which is
 what the earlier "it is expected, because programming a display replugs it"
@@ -1520,9 +1527,9 @@ full-size). The cold power-cycle that §9 used to list as outstanding **has been
 done**, twice since, and the input-chain fixes held (`HOME=/root`, udevd before
 Xorg, `autosuspend=-1` all read back correct). Boot-window HPD is now measured
 rather than inferred: `/var/log/hpd-boot.log` samples `hpd_state` every second
-for 180 s from inside `display-up.sh`. **Six boots are on record: three gave a
-single drop at t≈4–5 s, three gave `drops=0`, and no boot has ever dropped after
-5 s** — 1080 samples with nothing in the last 175 s of every window. The drop is
+for 180 s from inside `display-up.sh`. **Seven boots are on record: three gave a
+single drop at t≈4–5 s, four gave `drops=0`, and no boot has ever dropped after
+5 s** — 1260 samples with nothing in the last 175 s of every window. The drop is
 therefore *consistent with* the recipe's own mode write rather than proven by it,
 since three boots ran the same write and stayed clean. The load-bearing sentence is
 the second half: whatever the box does at boot, it does inside five seconds and
@@ -1649,18 +1656,23 @@ payload was deliberately erased; no full system/vendor backup exists).
      every axis *after* its own mode write, in one pass.
    * the real open question is *why* the boot pass flapped at all. It stopped
      flapping once the link was re-established by hand, and has not reappeared
-     in the six sampled boots since — so that is unreproduced, not explained. If
+     in the seven sampled boots since — so that is unreproduced, not explained. If
      "no signal" ever returns after a cold boot, re-run `display-up.sh` once
      and read `/var/log/hpd-boot.log` **before** changing the mode.
    Still open: a native logout dialog would need elogind + a D-Bus system bus
    (rejected on risk grounds, §7.7.7) — until then use the desktop
    **Reboot**/**ShutDown** icons (§5.5, whose scripts were missing from this
    repo until 2026-09-22).
-   *And the §0 test is still not done on the current configuration*: every
-   reboot since the storage binds, `tzdata` timezone, `time-up.sh` and 1080p60
-   all landed together has been **warm** (SSH or desktop icon, which unmounts
-   properly but never touches U-Boot or the from-dead HDMI handshake). Removing
-   power and putting it back is the one thing that has not been re-run since.
+   **The §0 test is now done on the current configuration** (2026-09-22). After
+   the storage binds, `tzdata` timezone, `time-up.sh`, 1080p60 **and** zram had
+   all landed together, power was removed and put back — the box self-recovered
+   with no intervention, on the first try, and everything §5.5 lists was found
+   in place afterwards. Note the order of events it confirms:
+   X was up from ~13 s and NTP landed at 38 s, so the panel genuinely ran for
+   a quarter-minute on the seeded floor before being stepped.
+   What this still cannot see: whether the ext4 journals replayed, because the
+   ring buffer starts at ~4.9 s (§5.5) — the box coming back *working* is the
+   evidence there, not a log line.
 2. **WiFi boot persistence is VERIFIED** — `/var/log/wifi-up.log` ends
    `INTERNET via wlan0: OK` after a real power-cycle. Nothing left here; the
    `sdiohal` single-load-per-boot rule (§6) is the only thing to remember.
@@ -1951,10 +1963,16 @@ root 执行我们的 `update-binary`**。
   `clean`,直接 `reboot(2)` 也未必会改它;`dmesg` 也定不下来,本机环形缓冲从
   ~4.9 秒才开始,该出现"journal recovery"的那批早期消息已经没了,"没有 recovery
   行"在这种情况下不含信息。帮助文本才是证据,文件系统状态只是一个自洽的说法。
-  **但图标重启是热的**:U-Boot、`recovery` 分区里的启动镜像、HDMI 从冷链路重新握手
-  全都跳过,而且 `data` 被干净卸载、没有回放。也就是说"断电再上电仍能自救"这条
-  §0 底线,在存储绑定 + tzdata 时区 + `time-up.sh` + 1080p60 这套组合同时生效之后
-  **还没重做过**,仍然挂着(见 §9)。
+  **但图标/SSH 重启是热的**:U-Boot、`recovery` 分区里的启动镜像、HDMI 从冷链路
+  重新握手全都跳过,而且 `data` 被干净卸载、没有回放。所以"断电再上电仍能自救"这条
+  §0 底线,此前只在更早的配置上验证过。**2026-09-22 做了真测试**:在存储绑定 +
+  `tzdata` 时区 + `time-up.sh` + 1080p60 **再加上 zram** 同时生效的状态下拔电再上电,
+  机器**无人干预自己回来了**,事后文件系统层面能查的逐项都在:五个回收分区挂载点(含两条 bind)、
+  `/proc/swaps` 里的 `/dev/zram0`、WiFi `INTERNET via wlan0: OK`、t=38 秒 NTP 校准并
+  写回 RTC、Xorg 与面板在跑、`cur_VIC: 16`。这个测试**看不到**的只有一件事:文件系统
+  到底*怎么*扛过来的——日志回放只会出现在前 4.9 秒(见上)。我查了:幸存的 310 行从
+  4.92 秒开始,里面**一条 ext4 输出都没有**,所以"没有"是本机已知的盲区、不是合格证。
+  这里的证据是"挂上了、东西都还在",而不是某行日志。
 * **内存:其实是 ~1GB,而 swap 是 2026-09-22 才有的**。`MemTotal: 1013068 kB`
   = **989 MiB**,4 核,armv7l 带 VFP/NEON。§7.7 一直写的是 989 MB,但我在**对话里**
   反复说的那个数来自商品页、从来没量过,而且已经混进了一个设计理由里:
@@ -1997,8 +2015,8 @@ root 执行我们的 `update-binary`**。
     要拿到真实数字就得在跑着 X 的机器上故意耗尽 989 MiB,错的代价是 OOM 杀进程,不试;
   * **开机路径现已证明**:2026-09-22 那次重启(`boot_id` 变了,`/proc/swaps` 里
     `/dev/zram0 262140`,init 之后再没人碰过它)说明 `rc.local` 那段确实无人干预地跑
-    了、上限也照收。注意这是**经 init 的热重启**——而这正是考验 `rc.local` 的那种重启,
-    所以测对了东西。§0 说的断电再上电是另一回事,仍然挂着。
+    了、上限也照收。同一天这段又扛过了 §0 的**真断电重启**(§5.5),所以冷启动和
+    经 init 的热重启两种路径现在都见过。
     这次重启还顺带教我一件事:**在一台刚把 zram 设好的机器上 `dmesg | grep zram0`
     是空的**。§5.5 早写过本机环形缓冲从 ~4.9 秒才开始,而 `rc.local` 是在网络拉起
     阶段就启用 swap 的——远早于那 4.9 秒——所以脚本自己 `> /dev/kmsg` 的那行和内核
@@ -2546,8 +2564,8 @@ ConsoleKit / seatd**,所以 XFCE 自带退出对话框里的重启/关机按钮�
 而不是归因于开机过程,归错了。**采样长度必须大于你要找的那个周期,否则别把它叫作实测。**
 
 `display-up.sh` 现在内置了一个 180 秒的开机窗口采样器,正是为了这个原因,结果写到
-`/var/log/hpd-boot.log`。至今 **6 次开机(都是 1080p60):3 次在 t≈4–5 秒掉一次、
-3 次整窗 drops=0,而 6 次里没有一次是在 5 秒之后掉的**——每个窗口的后 175 秒都是干净的。
+`/var/log/hpd-boot.log`。至今 **7 次开机(都是 1080p60):3 次在 t≈4–5 秒掉一次、
+4 次整窗 drops=0,而 7 次里没有一次是在 5 秒之后掉的**——每个窗口的后 175 秒都是干净的。
 那一次掉落正好落在配方自己写 `display/mode` 的时刻,但**不能据此断定因果**:同样的写法
 有三次根本没掉,所以只能说"与之相符"。承重的是后半句:这台机器开机阶段搞出的动静都发生在
 头五秒内,之后整窗稳住。所以 1080p60 现在是有数据支撑的,而不是靠 12 秒的运气。
@@ -2591,7 +2609,7 @@ genmon 里的 WiFi 状态条)以 16 bpp 活在 fb0 上,**`1080p60hz` / 1920×108
 脚本拉起;肉眼确认画面稳定、四边不裁。此前挂着的**再冷拔电一次已经做完并通过**(之后
 又做了两次),三个输入链修复(`HOME=/root`、Xorg 前起 eudev、`autosuspend=-1`)开机读数
 全部正确。开机窗口的 HPD 现在是**测出来的**而不是推断的:`display-up.sh` 内部有个 180
-秒采样器写 `/var/log/hpd-boot.log`,累计 6 次开机:**3 次 t≈4–5 秒掉一次、3 次整窗
+秒采样器写 `/var/log/hpd-boot.log`,累计 7 次开机:**3 次 t≈4–5 秒掉一次、4 次整窗
 drops=0,但没有一次在 5 秒之后掉**。热重启与冷重启都全自动跑通,有线/无线/时钟照常起来。
 `/etc/fstab` 里新增的两条 bind(`/var/cache/apk`→`/opt`、`/var/log`→`/home`)也已确认
 是**开机自动生效**而不是手工挂上去的:重启后两条都在 `/proc/mounts` 里,而之前
@@ -2691,9 +2709,10 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    仍未做:让退出对话框的关机/重启按钮变活需要 **elogind + dbus 系统总线**(§7.7.7
    因风险原因否决);在那之前用桌面上的 **Reboot** / **ShutDown** 图标(见 §5.5,
    它们调用的脚本直到 2026-09-22 才进仓库)。
-   **§0 那条底线至今没在当前组合上重做**:自存储绑定 + `tzdata` 时区 + `time-up.sh`
-   + 1080p60 一起生效之后,每一次重启都是**热的**(SSH 或桌面图标 —— 卸载是干净的,
-   但根本不碰 U-Boot,也不碰 HDMI 从冷链路重新握手)。拔电再上电是唯一没重跑的一项。
+   **§0 那条底线已于 2026-09-22 在当前组合上重做并通过**:存储绑定 + `tzdata` 时区
+   + `time-up.sh` + 1080p60 + zram 同时生效的状态下拔电再上电,机器自己回来、下面各项
+   全在(细节见 §5.5)。在此之前每一次重启都是**热的**,那部分区别仍然成立——热重启
+   不碰 U-Boot,也不碰 HDMI 从冷链路重新握手。
 2. **WiFi 开机自启已验证通过**:真实断电重启之后 `/var/log/wifi-up.log` 以
    `INTERNET via wlan0: OK` 结束。这一项没有遗留;要记的只有 §6 那条
    `sdiohal` 每次开机只能加载一次的规矩。
