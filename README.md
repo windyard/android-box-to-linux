@@ -724,18 +724,45 @@ all working together. Its log shows the framebuffer read as
 `fb_depth/fb_bpp/fb_Bpl 16/16/3840`, i.e. the real 1920-wide 16 bpp fbdev session,
 with **X DAMAGE and XFIXES both available**, so it is not polling the whole screen.
 
-Two things deliberately *not* claimed: that KRDC renders it correctly (that needs
-eyes on a GUI, §9), and that it survives a reboot. It is **not** in `rc.local`;
-that file's boot path was verified cold today and a listening service does not
-belong in it until it has earned a place.
+Two things were deliberately *not* claimed at that point: that KRDC renders it
+correctly, and that it survives a reboot. Both have since been settled, in
+opposite directions.
 
-Client, either route:
+**KRDC renders it — seen.** The session's own server log is the measurement:
+`client_set_net: ::1` (i.e. arriving through the tunnel, as it must),
+`Sending rfbEncodingExtDesktopSize for size (1920x1080)`, `created xdamage
+object` + `called initialize_xfixes()`, and `network rate 321.5 KB/sec (1959.4
+eff KB/sec) … link_rate: LR_LAN - 3 ms`. "eff > raw" is the compression working;
+`XFIXES` present is why it does not have to poll. The eye-confirmation was that
+the picture looked right, not a blank or tearing screen.
+
+**It does not survive a reboot — by design, and now measured.** `rc.local` was
+left alone, so the reboot simply removed the listener and the next connect was
+refused. The log recorded its own death: `caught signal: 15` — SIGTERM, which only
+an orderly shutdown sends. That also dates the event: this was a **warm** reboot,
+32 s between that line and the new uptime base, not a second §0 power-cycle, so it
+adds nothing to what the cold test covers. Nothing else on the box was involved;
+this is the same "nothing is listening" that greets any attempt to connect before
+the server has been started. Restart it with the line above, and expect
+`127.0.0.1:5900` to reappear in `netstat -ltnp`.
+
+Client, the route that works:
 
 ```
-KRDC: New connection → VNC → vnc://192.0.2.126:5900 → tick "Connect via SSH tunnel", user root
-   or
 ssh -N -L 5901:localhost:5900 root@192.0.2.126 &      then      vnc://localhost:5901
 ```
+
+The other route, KRDC's own "Connect via SSH tunnel" checkbox, **cannot work here
+and this is a client limitation, not a box misconfiguration**. `strings` on
+`/usr/bin/krdc` and `libkrdccore.so.26.08.0` (KRDC 26.08.0) show the tunnel
+authenticating through `ssh_userauth_agent` or `ssh_userauth_password` only —
+there is no publickey path and no identity-file option — and the literal prompt
+"Please enter the SSH password." is what appears. The box runs
+`dropbear -s -p 22`, where `-s` disables password logins outright. So the
+checkbox offers exactly two methods the server refuses to accept, and the one
+method the server offers (keys) is the one KRDC does not implement. The correct
+fix is the terminal tunnel above; weakening the box with `-s` removed to suit a
+client that cannot use keys is not.
 
 ---
 
@@ -996,7 +1023,13 @@ follows a stepped clock rather than caching what it read at startup. Worth
 writing down: a plugin that *did* cache it would have looked exactly like the
 timezone bug all over again — same symptom, different cause, and the fix would
 have been sought in the wrong file. Note also that only the end state was
-observed, not the transition itself.
+observed, not the transition itself. A third boot the same day landed at t=21 s
+again — that one was **warm**, and the evidence for that is in §5.8: x11vnc got as
+far as logging `caught signal: 15` before it died, which only an orderly shutdown
+sends, and 32 s separated that line from the new uptime base. There the clock was
+checked over SSH (`date -u` and `hwclock -r` agreed with each other and with the
+wall clock), **not** read off the panel, so it is a data point about the arrival
+time of the step and nothing at all about the plugin.
 
 Boot-time NTP is §6.10.
 
@@ -1789,11 +1822,17 @@ payload was deliberately erased; no full system/vendor backup exists).
    `0 0 0 0`, i.e. no page has ever been swapped, so the 256 MiB ceiling remains
    an assumption rather than a measured fit — finding that out needs memory
    pressure this box should not be subjected to casually.
-7. **Remote desktop (§5.8, x11vnc): proven up to the protocol, not yet seen in
-   KRDC.** The server runs loopback-only and answered `RFB 003.008` through an SSH
-   tunnel from the workstation; what is left is a person looking at a KRDC window.
-   Nothing is persisted — a reboot clears it, on purpose. Stop it by hand with
-   `kill $(pidof x11vnc)`.
+7. **Remote desktop (§5.8, x11vnc): works end to end, and is *not* persistent.**
+   KRDC has now been used for real — the server log shows the session arriving on
+   `::1` at 321 KB/s with XFIXES driving the updates. A later reboot "refused" the
+   connection, which is the designed outcome, not a fault: nothing is in
+   `rc.local`, so the listener is gone and the log says `caught signal: 15`.
+   Restart by hand with the §5.8 command line; stop it with `kill $(pidof
+   x11vnc)`. Two things remain genuinely open: whether to persist it (that edits a
+   boot path verified cold on 2026-09-22, and puts a `-nopw` server on the
+   always-on list — say the word), and the fact that KRDC 26.08's built-in SSH
+   tunnel can never authenticate here, because it only does agent-or-password
+   while dropbear runs `-s`.
 
 ---
 
@@ -2164,11 +2203,29 @@ root 执行我们的 `update-binary`**。
   服务三者同时成立。日志里还能看到 framebuffer 读成
   `fb_depth/fb_bpp/fb_Bpl 16/16/3840`,也就是那个 1920 宽、16 bpp 的 fbdev 会话,
   并且 **X DAMAGE 与 XFIXES 都可用**,所以它不是整屏轮询。
-  两件刻意**不**声称的:KRDC 画得对不对(那要看 GUI 上的人眼,见 §9),以及它能不能
-  熬过重启。它**没有**进 `rc.local`;那个文件的开机路径今天刚被冷启动验证过,一个会
-  监听的服务不该在挣到位置之前就写进去。客户端两条路任选:KRDC 里新建 VNC 连接填
-  `vnc://192.0.2.126:5900` 并勾上 "Connect via SSH tunnel"(用户 root),或者
-  `ssh -N -L 5901:localhost:5900 root@192.0.2.126 &` 之后连 `vnc://localhost:5901`。
+  当时刻意**不**声称的两件事,后来各有结论,方向相反。
+  **KRDC 画出来了——有人看过。** 服务端的日志就是测量:`client_set_net: ::1`
+  (也就是从隧道里进来,只能是这样)、`Sending rfbEncodingExtDesktopSize for size
+  (1920x1080)`、`created xdamage object` + `called initialize_xfixes()`,以及
+  `network rate 321.5 KB/sec (1959.4 eff KB/sec) … link_rate: LR_LAN - 3 ms`。
+  "eff 大于 raw" 说明压缩在干活;有 XFIXES 才不用轮询。人眼确认的是画面正常,不是
+  黑屏或撕裂。
+  **它熬不过重启——这是设计,现在也有测量。** `rc.local` 没动,所以重启直接把监听
+  收掉,下一次连就被拒。日志记下了自己的死法:`caught signal: 15`,即 SIGTERM——
+  只有有序关机才会发这个信号。这也把事件定了性:那是一次**热**重启,从这一行到新的
+  uptime 起点只隔 32 秒,并不是第二次 §0 断电测试,所以对"冷启动自救"那一条没有增加任何
+  东西。机器上别的东西都没被牵连;这和"服务还没起来时去连"得到的是同一个答复。要恢复
+  就照上面那行重新起,然后 `netstat -ltnp` 里应该重新出现 `127.0.0.1:5900`。
+  客户端,走得通的那条:`ssh -N -L 5901:localhost:5900 root@192.0.2.126 &`,
+  然后连 `vnc://localhost:5901`。
+  另一条——KRDC 自带的 "Connect via SSH tunnel" 勾选框——**在这台机器上不可能成
+  功,而且这是客户端的限制,不是配置问题**。对 `/usr/bin/krdc` 和
+  `libkrdccore.so.26.08.0`(KRDC 26.08.0)`strings` 的结果是:那条隧道只走
+  `ssh_userauth_agent` 或 `ssh_userauth_password`,没有 publickey 路径,也没有指定
+  identity 文件的选项,弹出来的是那句 "Please enter the SSH password."。而机器跑的是
+  `dropbear -s -p 22`,`-s` 直接关掉口令登录。于是勾选框提供的两种办法服务器一个都不
+  接受,服务器提供的那一种(公钥)恰好是 KRDC 没实现的。正确的修法是走上面的终端隧
+  道;为了迁就一个不会用公钥的客户端而把机器的 `-s` 去掉,不是。
 
 ## 6. 内置 WiFi
 
@@ -2270,7 +2327,11 @@ root 执行我们的 `update-binary`**。
   被步进**。步进之后再读屏幕,时间是正确的 CST,所以这个插件跟着系统时钟走、不会缓存
   启动时读到的值。值得写下来,是因为**会缓存的那种长得一模一样**:同样的症状、不同的
   原因,而修复会被写进完全无关的文件里。另外要说清楚:观察到的只是最终状态,不是变化的
-  那一瞬间。
+  那一瞬间。同一天第三次开机又落在 t=21 秒,而那一次是**热**重启,证据在 §5.8 里:
+  x11vnc 死之前来得及记下 `caught signal: 15`,这个信号只有有序关机才会发,而且从这一行
+  到新的 uptime 起点只隔了 32 秒。那一次的时钟是**从 SSH 查的**(`date -u` 与
+  `hwclock -r` 互相一致、也和真实时间一致),**没有**看屏幕,所以它只是"对时什么时候到"
+  的一个数据点,对插件本身什么都没说。
   别拿 `TZ` 环境变量当替身:显式 `TZ` 会覆盖 `/etc/localtime`,残留的 `TZ=UTC` 会把
   一整棵进程树钉在 UTC;而没装 tzdata 时残留的 `TZ=Asia/Shanghai` 同样钉在 UTC,
   还看起来完全像是故意的。
@@ -2875,9 +2936,13 @@ echo 1 > /sys/class/graphics/fb0/osd_do_hwc        # 5. 踢一脚硬件合成
    环形缓冲起点(~4.9 秒)之前,那两行写了又被丢掉,读不到不等于没发生。仍然挂着的是:
    `io_stat` 还是 `0 0 0 0`,一个页都没换出过,所以 256 MiB 这个上限依旧只是假设;要知道
    合不合身就得制造内存压力,而这不是该随手做的事。
-7. **远程桌面(§5.8,x11vnc):协议层已通,但还没在 KRDC 里亲眼看过。** 服务端只听
-   回环,从工作站经 SSH 隧道已经拿到 `RFB 003.008`;剩下的是有人看一眼 KRDC 窗口。
-   什么都没持久化——重启就没了,这是故意的。手工停它用 `kill $(pidof x11vnc)`。
+7. **远程桌面(§5.8,x11vnc):端到端可用,而且它不持久。** KRDC 已经真的用过——服务端
+   日志显示那次会话从 `::1` 进来、321 KB/s、由 XFIXES 驱动更新。之后一次重启把连接拒
+   了,这是设计的结果而不是故障:`rc.local` 里什么都没有,监听因此消失,日志里写着
+   `caught signal: 15`。照 §5.8 那行手工重新起来即可;停它用 `kill $(pidof x11vnc)`。
+   真正还挂着的两件事:要不要把它持久化(那会改动 2026-09-22 冷启动验证过的开机路径,
+   并把一个 `-nopw` 的服务加进常驻列表——你说了算),以及 KRDC 26.08 自带的那条 SSH 隧道
+   在这台机器上永远认证不过去——它只会 agent 或口令,而 dropbear 带着 `-s`。
 
 ---
 
